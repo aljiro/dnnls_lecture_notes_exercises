@@ -18,7 +18,7 @@ Do not read ahead while doing the experiment. Run each prompt, inspect the resul
 
 Copy this into Gemini:
 
-> Create the target values `[1, 2, 2, 3, 3, 3, 4, 4, 20]`. Imagine we are forced to predict the same single number for every target. Test constant predictions from 0 to 20 in small steps. For every possible prediction, calculate both mean squared error (MSE) and mean absolute error (MAE). Plot the two loss curves separately, mark the prediction that minimizes each one, and print those minimizing predictions together with the mean and median of the targets. Briefly explain what a constant predictor is and how each loss is calculated, but do not yet explain why the minima occur where they do.
+> Create the target values `[1, 2, 2, 3, 3, 3, 4, 4, 20]`. Imagine we are forced to predict the same single number for every target. Test constant predictions from 0 to 20 in small steps. For every possible prediction, calculate both mean squared error (MSE) and mean absolute error (MAE). Plot the two loss curves separately, mark the prediction that minimizes each one, and print those minimizing predictions together with the mean and median of the targets. Also add an interactive slider labelled `constant prediction` from 0 to 20. When I move it, update a marker on both loss curves and display the MSE and MAE for the selected prediction, while keeping the optimal points visible. Briefly explain what a constant predictor is and how each loss is calculated, but do not yet explain why the minima occur where they do.
 
 ### Questions
 
@@ -26,7 +26,8 @@ Copy this into Gemini:
 2. Which minimum is closer to the mean?
 3. Which minimum is closer to the median?
 4. What is unusual about the value `20` compared with the other targets?
-5. Does the choice of loss appear to affect what counts as the "best" answer?
+5. As you move the slider away from each optimum, do the two losses react in the same way?
+6. Does the choice of loss appear to affect what counts as the "best" answer?
 
 ---
 
