@@ -102,7 +102,7 @@ A gradient is local information about how the loss changes when the parameters c
 
 Now ask Gemini:
 
-> We have just moved from manually inspecting a loss surface to estimating local slopes and then using gradient descent to fit a linear model. Discuss with me what a gradient tells us, why moving opposite the gradient reduces the loss locally, and why the learning rate matters. Connect the explanation directly to the contour plots and failed large-learning-rate run. Do not introduce backpropagation yet.
+> We have just moved from manually inspecting a loss surface to estimating local slopes and then using gradient descent to fit a linear model. Discuss with me what a gradient tells us, why moving opposite the gradient reduces the loss locally, and why the learning rate matters. Connect the explanation directly to the contour plots and failed large-learning-rate run. Then show how `y_hat = w*x + b` generalises when one example has several input features: first as a weighted sum or dot product, and then how predictions for a batch of examples can be written compactly with matrix multiplication. Do not introduce backpropagation yet.
 
 ### Final discussion questions
 
