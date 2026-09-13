@@ -1,2 +1,528 @@
-\chapter{Modern Perspectives on Representation and Learning}
+\chapter{Scaling, representation geometry and what the metric sees}
 \label{chap:week10}
+
+Week~9 ended with a question about the representations flowing through large networks. Once a model contains many layers, many attention routes and many learned features, what has actually been organised inside those vectors? Is a concept a coordinate, a direction, a cluster, a subspace, or something distributed across many units? And if the final task metric has already saturated, can the representation still be changing in scientifically important ways?
+
+Those questions make an appropriate final compulsory week because they bring us back to the beginning of the module. In Week~1 we asked what problem we were trying to solve. In Week~2 we learned that the loss is a specification, not a neutral score. In later weeks we learned to inspect generalisation, representations, information use, memory, uncertainty and routing. Scaling does not replace any of those lessons. It amplifies the consequences of getting them right or wrong.
+
+A large pretrained system may contain far more capacity than a small network, but it is still trained on finite data, under a chosen objective, with a particular architecture and an evaluation protocol that decides what counts as success. A model can be larger and still optimise the wrong statistic. A representation can look collapsed under one similarity measure while still containing useful distinctions. An accuracy curve can stop moving while the geometry of the hidden features continues to reorganise.
+
+\begin{keyidea}
+Scale does not make the scientific questions disappear. It makes it more important to separate \emph{capacity}, \emph{data}, \emph{compute}, \emph{objective} and \emph{measurement}. If a system improves, we should ask which resource removed which limitation. If it does not improve, we should ask whether the limiting factor was ever one that scaling could address.
+\end{keyidea}
+
+This chapter therefore has two connected themes. The first is how modern systems spend large amounts of capacity efficiently. The second is how to measure the geometry that such systems learn. We will end by returning to the most basic question in experimental machine learning: does our metric reward the behaviour we actually care about?
+
+\section{Scaling is not one knob}
+
+When people say that a model has been ``scaled up'', several different changes may be hidden inside the phrase:
+\begin{itemize}[leftmargin=*]
+  \item more model parameters;
+  \item more training examples or tokens;
+  \item more optimisation steps or total compute;
+  \item larger or cleaner pretraining data;
+  \item stronger pretrained components;
+  \item a higher-resolution input or a larger context window;
+  \item a different objective or data mixture.
+\end{itemize}
+
+These interventions do not solve the same problem.
+
+Suppose a small network cannot approximate a complicated target function. Increasing width or depth may reduce an \emph{approximation} limitation. Suppose a powerful model fits the training set but performs poorly on held-out data. More representative data or stronger regularisation may address a \emph{generalisation} limitation. Suppose training loss remains high because optimisation is unstable. Better normalisation, learning rates or compute may address an \emph{optimisation} limitation.
+
+But suppose the loss itself prefers an undesirable solution. Then more capacity can make the model a more accurate optimiser of the wrong behaviour.
+
+The multimodal regression example from Week~8 makes this concrete. If a fixed input has two equally plausible target modes and a deterministic model is trained with squared error, the conditional mean is the optimal point prediction. A wider network with more data can estimate that mean more accurately. The result can have lower test MSE while remaining between the two valid futures.
+
+That is not a failure of scale. It is a success at the objective we specified.
+
+\subsection{Empirical scaling laws}
+
+One reason scaling became central to modern deep learning is that performance often changes smoothly and predictably over substantial ranges of model size, data size and compute. Work on neural language models found approximate power-law relationships between cross-entropy and these resources \parencite{kaplan2020}. Later work showed that, for a fixed training-compute budget, allocating resources differently between model parameters and training tokens could substantially improve performance; the Chinchilla experiments are a well-known example \parencite{hoffmann2022}.
+
+The important lesson is not one universal exponent. Empirical scaling relationships depend on the model family, data distribution, training procedure and metric. The transferable idea is methodological: if performance changes systematically with a resource, we can study the slope rather than comparing only two arbitrary model sizes.
+
+A scaling curve can reveal different regimes. At small size, performance may improve rapidly because capacity is limiting. Later the curve may flatten because another bottleneck dominates. Adding parameters beyond that point may still lower training loss without producing the downstream behaviour we wanted.
+
+\begin{figure}[ht]
+  \figureaction{Create a schematic three-panel scaling figure. Panel 1: validation loss decreasing smoothly as model/data/compute increase. Panel 2: a curve that flattens because an objective-limited metric stops improving even while training loss falls. Panel 3: a triangle labelled model capacity, data and compute, with objective/metric drawn as an outer specification that cannot be repaired merely by moving around the triangle.}
+  \caption{Scaling studies should separate the resource being increased from the quantity being measured. Capacity, data and compute can remove different limitations, but none automatically changes what the objective rewards.}
+  \label{fig:week10-scaling}
+\end{figure}
+
+\begin{checkpointbox}
+A larger model has half the training loss of a smaller one. Their held-out accuracy is identical, and both fail on the same rare subgroup. Which conclusions follow?
+
+The larger model is clearly fitting the training objective more closely. It does \emph{not} follow that the model is more useful on the subgroup, nor that more parameters are the resource that subgroup performance needs. We would need targeted measurements: subgroup data coverage, calibration, representation quality, objective weighting or other relevant diagnostics.
+\end{checkpointbox}
+
+\section{Pretraining changes where the capacity comes from}
+
+Training a large model from scratch on a small task-specific dataset is often a poor use of capacity. Modern systems commonly learn broad representations on a large corpus and then adapt those representations to a narrower task.
+
+This changes the learning problem. The downstream system does not begin with random image or language features. It inherits a representation that has already encoded regularities from a much larger dataset. Fine-tuning, projection heads, adapters or small task-specific models can then reorganise or select from those features.
+
+A frozen component is especially useful when the downstream dataset is small or when we need a stable reference. Freezing has a cost: the representation cannot adapt to task-specific details. But it also removes one source of instability. If a target representation is fixed, another network cannot reduce a similarity loss by moving both sides together toward a trivial configuration.
+
+This distinction appeared repeatedly in the StoryReasoning architecture. A pretrained visual encoder provided a useful latent space. When that encoder was allowed to drift under a poorly conditioned similarity objective, the representation could shrink toward a common direction. A frozen copy of the target encoder made the target geometry stationary: the predictor had to move toward meaningful targets rather than allowing the targets themselves to move with it.
+
+Related ideas appear in self-supervised representation learning, where a slowly updated or otherwise stabilised target network can act as a reference while another network learns to predict it. The details differ across methods, but the scientific role is recognisable: prevent the target of a representation objective from becoming an unconstrained moving target.
+
+\begin{keyidea}
+A pretrained or frozen representation is not merely a convenient feature extractor. It changes the optimisation geometry of the downstream problem by providing structure that has already been learned and, when frozen, a reference that cannot drift to satisfy the current loss trivially.
+\end{keyidea}
+
+\section{Conditional computation: grow capacity without using all of it}
+
+A dense layer applies the same parameterised transformation to every example. If we double the width of such a layer, we increase both the number of stored parameters and, roughly, the amount of computation each example uses.
+
+Conditional computation breaks that coupling.
+
+A mixture-of-experts model contains several subnetworks, called \emph{experts}, together with a \emph{router} or \emph{gate}. For an input representation \(\vect{x}\), the router produces scores
+\[
+  \vect{r}=g_\phi(\vect{x})\in\R^E
+\]
+for \(E\) experts. A sparse routing rule keeps only the top \(k\) scores, normalises them, and combines the selected expert outputs:
+\begin{equation}
+  \vect{y}
+  = \sum_{e\in\mathcal{T}_k(\vect{x})}
+      \alpha_e(\vect{x}) f_e(\vect{x}).
+  \label{eq:week10-moe}
+\end{equation}
+
+Here \(\mathcal{T}_k(\vect{x})\) is the set of selected experts and \(\alpha_e\) are the normalised routing weights.
+
+The total model may contain all \(E\) experts, but one example activates only \(k\) of them. This separates \emph{stored capacity} from \emph{active computation}. Sparse expert models such as the Switch Transformer exploit this idea at large scale \parencite{fedus2022}.
+
+\subsection{The router is part of the model}
+
+It is tempting to think of routing as an implementation detail whose only job is to save compute. That misses the central mechanism. The router decides which function is applied to which input.
+
+Imagine a two-dimensional regression task with four regions, each governed by a different simple rule. Four experts can specialise, while the router learns which region an input resembles. If routing decisions are shuffled across examples while the experts remain unchanged, performance can deteriorate sharply. The experts still contain useful functions; the system is failing to send examples to the appropriate ones.
+
+This is the same conceptual thread we saw with gates and attention:
+\begin{center}
+  \emph{different inputs can activate different computation paths.}
+\end{center}
+
+Attention conditionally routes \emph{information}. A mixture of experts conditionally routes \emph{computation}.
+
+\subsection{Routing has its own failure modes}
+
+Sparse routing creates new engineering problems. If one expert is slightly better early in training, the router may send more examples to it. That expert then receives more gradient updates and can become even more attractive. The system may collapse toward a small subset of experts while other parameters are barely trained.
+
+Practical MoE systems therefore monitor expert-use frequencies and often use auxiliary objectives or capacity constraints to encourage balanced routing. Communication between devices also matters at large scale, because sending tokens to experts on different accelerators can dominate runtime even when arithmetic is sparse.
+
+The headline parameter count is consequently incomplete. A useful report should distinguish:
+\begin{itemize}[leftmargin=*]
+  \item total parameters stored;
+  \item experts active per token/example;
+  \item approximate active parameters or FLOPs;
+  \item router balance and expert utilisation;
+  \item downstream quality.
+\end{itemize}
+
+\begin{pytorchbox}{a toy top-k expert mixture}
+router_logits = router(x)                 # [B, E]
+weights = router_logits.softmax(dim=-1)
+
+top_w, top_i = weights.topk(k=2, dim=-1)
+top_w = top_w / top_w.sum(dim=-1, keepdim=True)
+
+expert_outputs = torch.stack([expert(x) for expert in experts], dim=1)
+selected = expert_outputs.gather(
+    1, top_i[..., None].expand(-1, -1, expert_outputs.size(-1))
+)
+y = (top_w[..., None] * selected).sum(dim=1)
+\end{pytorchbox}
+
+The toy implementation computes every expert before selecting, so it does not save real compute. It exposes the mathematical routing rule. Production sparse systems avoid evaluating unselected experts.
+
+\section{A representation is a geometry, not a list of neurons}
+
+By Week~3, we had already stopped thinking of a hidden layer as merely a collection of scalar activations. A representation is a point \(\vect{h}\in\R^d\). Across a dataset, the network produces a cloud of such points.
+
+That cloud has geometry:
+\begin{itemize}[leftmargin=*]
+  \item a mean direction;
+  \item directions of large and small variance;
+  \item clusters and neighbourhoods;
+  \item class or semantic margins;
+  \item subspaces that contain linearly decodable information;
+  \item directions that downstream weights actually use.
+\end{itemize}
+
+The coordinate axes are only one basis for describing this geometry. A feature need not correspond to one coordinate, and one coordinate need not correspond to one human concept.
+
+This matters whenever we interpret cosine similarity. For two non-zero vectors,
+\[
+  \cos(\vect{a},\vect{b})
+  = \frac{\vect{a}^{\mathsf T}\vect{b}}
+  {\lVert\vect{a}\rVert\lVert\vect{b}\rVert}.
+\]
+Cosine measures angle, not semantic truth. Its meaning depends on how the representation space is arranged.
+
+\section{Anisotropy: when everything points partly the same way}
+
+Suppose every embedding contains a large common component \(\vect{m}\):
+\[
+  \vect{h}_i = \vect{m} + \vect{u}_i,
+\]
+where \(\vect{u}_i\) contains the example-specific structure.
+
+If \(\lVert\vect{m}\rVert\) is large relative to the variation in \(\vect{u}_i\), then even unrelated examples can have high cosine similarity because both vectors point partly in the direction of \(\vect{m}\). The space is \emph{anisotropic}: some directions dominate much more strongly than others.
+
+This does not mean that all examples are identical. The residual vectors \(\vect{u}_i\) may still preserve useful clusters, retrieval neighbours or class information.
+
+A simple diagnostic is to centre the embeddings:
+\begin{equation}
+  \tilde{\vect{h}}_i = \vect{h}_i - \bar{\vect{h}},
+  \qquad
+  \bar{\vect{h}} = \frac{1}{N}\sum_{i=1}^{N}\vect{h}_i.
+  \label{eq:week10-centering}
+\end{equation}
+After centring, cosine similarity asks about directions relative to the dataset mean rather than relative to the origin chosen by the raw encoder.
+
+Centring is not universally correct. If the global mean itself carries task-relevant information, subtracting it may remove signal. The point is diagnostic: when raw cosine appears strangely high for almost every pair, inspect the mean and compare raw and centred geometry.
+
+\begin{figure}[ht]
+  \figureaction{Create a 2-D geometric illustration with three panels. Healthy: several separated clusters around the origin. Anisotropic: the same relative clusters shifted strongly in one common direction so vectors from the origin have similar angles. Centred: subtract the shared mean and recover the relative cluster geometry. Add a fourth small inset for true collapse, where all points occupy nearly the same location.}
+  \caption{A dominant common direction can compress raw cosine differences without destroying all information. Centring can reveal relative structure. True collapse is different: the meaningful variation itself disappears.}
+  \label{fig:week10-anisotropy-collapse}
+\end{figure}
+
+\section{Collapse: when the distinctions actually disappear}
+
+Representation collapse is a stronger failure than anisotropy. In collapse, many different inputs map to nearly the same representation:
+\[
+  f_\theta(x_i) \approx \vect{c}
+  \qquad\text{for many }i.
+\]
+The point cloud loses spread and the representation ceases to preserve distinctions needed by downstream tasks.
+
+Mean pairwise cosine alone cannot reliably distinguish collapse from anisotropy. In both cases it may be close to one. Useful diagnostics include:
+\begin{itemize}[leftmargin=*]
+  \item per-dimension or total feature variance;
+  \item singular values/eigenvalues of the centred feature matrix;
+  \item nearest-neighbour retrieval accuracy;
+  \item linear-probe performance;
+  \item same-class versus different-class distances;
+  \item sensitivity of predictions to representation interventions.
+\end{itemize}
+
+If centring restores useful retrieval margins, the representation was not truly collapsed. If every centred embedding has almost zero norm and class/retrieval structure disappears, collapse is a more plausible diagnosis.
+
+The distinction is important because the remedies differ. A common mean direction may be handled by centring, whitening, normalisation or a better similarity function. Genuine collapse requires changing the learning dynamics or objective so that variation is preserved.
+
+\begin{optionalexercise}[title={Optional mathematics --- centre before measuring geometry}]
+Let three two-dimensional embeddings be
+\[
+  \vect{h}_1=(10,1),\qquad
+  \vect{h}_2=(10,0),\qquad
+  \vect{h}_3=(10,-1).
+\]
+Compute the pairwise raw cosines. Then subtract the mean embedding and inspect the centred vectors.
+
+Why do the raw cosines make the three examples look extremely similar? What structure becomes visible after centring? Finally compare with the genuinely collapsed case \(\vect{h}_1=\vect{h}_2=\vect{h}_3=(10,0)\).
+\end{optionalexercise}
+
+\section{Accuracy can stop while the representation keeps moving}
+
+A classifier is often evaluated by whether the largest logit has the correct class index. Once the decision boundary is on the correct side of every example, accuracy may stop changing.
+
+Cross-entropy still has work to do. It continues to reward larger margins between the correct logit and the alternatives. The features feeding the classifier can therefore continue to move even when the discrete accuracy metric is constant.
+
+This creates a useful experimental principle:
+\begin{center}
+  \emph{if the scientific question concerns representation geometry, measure the geometry through training.}
+\end{center}
+
+For class \(c\), let \(\vect{\mu}_c\) be the mean penultimate representation and let \(n_c\) be the number of examples. One simple within-class scatter statistic is
+\begin{equation}
+  S_{\mathrm{within}}
+  = \frac{1}{N}
+    \sum_c\sum_{i:y_i=c}
+      \lVert \vect{h}_i-\vect{\mu}_c\rVert^2.
+  \label{eq:week10-within-scatter}
+\end{equation}
+We can separately track distances between class means and the alignment between class-mean directions and the corresponding classifier weight vectors.
+
+Two checkpoints can therefore have almost identical accuracy but noticeably different internal geometry.
+
+\subsection{Neural collapse}
+
+A striking late-training phenomenon in supervised classification is \emph{neural collapse} \parencite{papyan2020}. In the terminal phase of training, several regularities have been observed together: within-class feature variability becomes small; centred class means approach a highly symmetric configuration; classifier weight directions align with class-mean directions; and the classifier becomes closely related to a nearest-class-centre rule.
+
+For \(C\) balanced classes, the idealised centred class means in this symmetric configuration have equal norm and equal pairwise angle. After normalisation, distinct class means satisfy approximately
+\begin{equation}
+  \vect{\mu}_c^{\mathsf T}\vect{\mu}_{c'}
+  \approx -\frac{1}{C-1},
+  \qquad c\neq c'.
+  \label{eq:week10-etf}
+\end{equation}
+This is the geometry of a regular simplex embedded in feature space.
+
+The formula is less important than the scientific surprise. A massively overparameterised network need not end training with arbitrary last-layer geometry. Strongly regular structure can emerge after classification error is already essentially zero.
+
+A small classroom experiment should not be called a proof of full neural collapse merely because clusters become tighter. The stronger phenomenon includes several coupled symmetry claims. But within-class compression, growing class-mean separation and weight/mean alignment are valuable measurements in their own right.
+
+\begin{checkpointbox}
+Two checkpoints both obtain 98.5\% validation accuracy. At the later checkpoint, within-class scatter is 40\% lower, class means are farther apart and classifier directions are more closely aligned with those means.
+
+It is correct to say that the checkpoints have similar measured accuracy but different representation geometry. It is not automatically correct to say that the later checkpoint will be better on every distribution shift. Geometry is evidence about the representation, not a universal guarantee of robustness.
+\end{checkpointbox}
+
+\section{Delayed generalisation: grokking as a warning about training time}
+
+A different phenomenon makes the same methodological point from another direction. In small algorithmic tasks, networks can sometimes reach near-perfect training performance while test performance remains poor, then generalise much later after many more optimisation steps. This delayed transition became known as \emph{grokking} \parencite{power2022}.
+
+The important lesson is not that every network will grok. Most ordinary training runs do not display the dramatic transition. The lesson is that training accuracy and even apparent memorisation do not necessarily mark the end of representation learning.
+
+Neural collapse and grokking are also not the same phenomenon. Neural collapse concerns late geometric organisation in supervised classifiers, often after training error has vanished. Grokking concerns delayed generalisation, prominently observed in small algorithmic datasets. They are useful together because both force us to ask what continues changing after a headline metric appears settled.
+
+This is one reason training curves should include more than the final epoch. Depending on the question, we may need snapshots of features, probes, retrieval quality, margins or calibration throughout optimisation.
+
+\section{Superposition: more features than obvious coordinates}
+
+The temptation to identify one neuron with one concept is strong because neurons are easy to inspect. But a network is free to use arbitrary directions in activation space. A feature can be represented by a direction that cuts across many neuron coordinates.
+
+There is an even more interesting possibility. When features are sparse---only a few are active for any one example---a network may store more useful feature directions than the dimensionality would suggest by allowing those directions to overlap. This idea is often called \emph{superposition} \parencite{elhage2022superposition}.
+
+A simple linear picture helps. Suppose the hidden representation has dimension \(d=2\), but the data contain three sparse features. If the features never need to be represented strongly at the same time, the network can place three feature directions at different angles in the two-dimensional plane. None has its own dedicated axis. Reading one feature may involve some interference from the others, but the overall representation can still be useful.
+
+As the number of features, their importance, their correlation and their sparsity change, the optimal geometry can change. The representation problem is therefore not necessarily ``assign one coordinate per concept.'' It can be ``arrange many useful directions so the expected interference is tolerable.''
+
+\begin{figure}[ht]
+  \figureaction{Create a simple superposition figure. Left: a privileged-axis representation with two features aligned to x and y axes. Right: three or four sparse feature directions arranged around the same 2-D plane, illustrating that more feature directions than dimensions can coexist at the cost of interference. Add a note that this is a toy linear picture, not a claim that real networks use only two dimensions.}
+  \caption{Superposition motivates a direction-based view of representation. Useful features can occupy distributed directions rather than one-neuron-per-feature coordinates.}
+  \label{fig:week10-superposition}
+\end{figure}
+
+This idea connects directly to Week~6. If features are distributed, then interpreting the largest activation of one neuron may miss the relevant basis entirely. Probes and interventions that operate on directions or subspaces can reveal structure invisible to coordinate-wise inspection.
+
+\section{Sparse autoencoders: try to recover a feature basis}
+
+Sparse autoencoders return here for a different reason from ordinary compression. We are no longer primarily trying to reconstruct pixels. We are trying to decompose a dense internal activation into a larger set of sparse feature activations.
+
+Let \(\vect{h}\in\R^d\) be an activation from a trained model. A sparse autoencoder learns
+\[
+  \vect{z}=f_\phi(\vect{h}),
+  \qquad
+  \hat{\vect{h}}=\mat{D}\vect{z}+\vect{b},
+\]
+where \(\vect{z}\in\R^m\) may have \(m>d\), but only a small number of coordinates are encouraged to be active for each example.
+
+A typical objective combines reconstruction and sparsity:
+\begin{equation}
+  \loss
+  = \lVert \vect{h}-\hat{\vect{h}}\rVert_2^2
+    + \lambda \lVert\vect{z}\rVert_1.
+  \label{eq:week10-sae}
+\end{equation}
+The decoder columns can be interpreted as candidate feature directions. Recent work has used this approach to recover sparse, often more interpretable features from language-model activations \parencite{cunningham2023}.
+
+The word ``interpretable'' needs the same discipline as in Week~6. A sparse feature that activates on examples humans can label coherently is suggestive evidence. Stronger claims require interventions: does increasing or suppressing the feature change the predicted behaviour expected from that interpretation? Does the feature generalise to new contexts, or is it reacting to a superficial lexical pattern?
+
+Sparse autoencoders also introduce trade-offs. Stronger sparsity can make features easier to inspect but worsen reconstruction. Very large dictionaries can contain dead features that rarely activate. Similar concepts may split across several features, or several meanings may remain entangled in one feature.
+
+The tool is therefore best understood as a proposed change of basis for analysis, not an oracle that reveals the unique true concepts inside a network.
+
+\section{How should a representation be measured?}
+
+There is no single representation metric because different questions require different evidence.
+
+\subsection{Similarity and centred similarity}
+
+Cosine or Euclidean distance can test local geometric relationships. If a common mean direction dominates, compare raw and centred measures. Always state the normalisation and reference population because the numbers depend on them.
+
+\subsection{Nearest-neighbour retrieval}
+
+Retrieval asks whether semantically or task-relevant examples occupy nearby regions. Unlike average pairwise cosine, it directly tests whether local geometry supports a concrete use. Candidate-set size matters: top-1 retrieval among 32 candidates is not the same problem as top-1 among 30,000.
+
+\subsection{Linear probes}
+
+A linear probe asks whether target information can be decoded by a simple linear map from the representation. High probe performance demonstrates \emph{decodability}. It does not prove that the original network uses that information for its own prediction.
+
+\subsection{Activation spread and spectrum}
+
+Per-dimension variance, singular values and covariance eigenvalues can reveal collapse, low-rank structure or strong anisotropy. They describe how the point cloud occupies space, not necessarily which directions matter to a task.
+
+\subsection{Ablations and interventions}
+
+If the claim concerns causal use, intervene. Remove a direction, replace a representation, shuffle a condition or route an example through the wrong expert. Behavioural changes are stronger evidence than an attractive PCA plot.
+
+\begin{keyidea}
+A representation claim should name both the property and the measurement. ``The embedding is good'' is underspecified. Good for nearest-neighbour retrieval? Linearly separable classification? Causal control of the output? Robustness to a distribution shift? Different measurements answer different questions.
+\end{keyidea}
+
+\section{Application to the architecture: scale moved some heads, not the bottleneck}
+
+\begin{architecturebox}
+The StoryReasoning system provides a compact example of why scaling should be analysed component by component.
+
+A scaled version used more story windows, additional GroundCap data for pretraining, frozen CLIP features and a wider autoencoder. Several quantities improved on the same 5,254 test windows: text retrieval top-10 rose from \(41.5\%\) to \(51.6\%\); text cross-entropy fell from \(2.65\) to \(2.40\); character F1 increased from \(0.44\) to \(0.46\); and autoencoder reconstruction L1 improved from \(0.042\) to \(0.036\).
+
+Yet the core next-frame image metrics barely moved: prior-mean L1 changed from \(0.131\) to \(0.132\), and best-of-5 sample L1 from \(0.123\) to \(0.124\). The extra data and stronger representations helped tasks that could exploit them, but they did not remove the ambiguity built into pointwise image prediction.
+
+The representation diagnostics also exposed geometry that raw loss values hid. Image latents shared a substantial common component, so raw cosine similarity exaggerated similarity between unrelated targets. Centring the target embeddings made retrieval/similarity more discriminative. When a trainable encoder was allowed to move with the target under a cosine-style objective, it could drift toward this shared mean; a frozen target encoder prevented that easy collapse route.
+
+The lesson is not that scaling ``failed''. It is that the system had different bottlenecks in different heads. A useful scaling study says what resource changed, which component improved, and which limiting assumption remained untouched.
+\end{architecturebox}
+
+\section{Metric validity: does the score distinguish the failures we care about?}
+
+The final practical returns to a question first introduced with regression losses. A metric is not merely a ruler placed after training. Once we optimise it, it becomes a specification for behaviour.
+
+Consider next-frame prediction across movie shot cuts. A pixelwise L1 score compares aligned coordinates:
+\[
+  d_{\mathrm{L1}}(\hat{I},I)
+  = \frac{1}{P}\sum_{p=1}^{P}|\hat{I}_p-I_p|.
+\]
+This is appropriate when the target structure is pixel-aligned and exact location matters. It becomes problematic when several visually plausible frames differ strongly in camera position, pose or background.
+
+A global median image can achieve a surprisingly competitive pixel loss because it avoids extreme pixel errors. A real frame from the same story may have worse L1 despite looking like an actual image.
+
+That observation gives us a basic validity test:
+\begin{center}
+  \emph{before trusting a metric, check whether it ranks deliberately chosen floors and failures in the way required by the scientific question.}
+\end{center}
+
+\subsection{Target-aligned semantic similarity}
+
+A frozen semantic image encoder such as CLIP maps an image to an embedding \(\vect{z}(I)\). After centring by a reference mean and normalising, cosine similarity can ask whether a prediction is semantically aligned with a particular target.
+
+This can distinguish a real but different story frame from a featureless average more strongly than pixel L1. But it has its own blind spots. It may tolerate blur, miss small objects or inherit biases from pretraining. Calling it ``perceptual quality'' without qualification would be too broad.
+
+\subsection{Set-level Fr\'echet distance}
+
+Sometimes the question is not whether prediction \(i\) matches target \(i\), but whether the \emph{set} of generated samples has similar feature statistics to the set of real targets.
+
+Given feature means \(\vect{\mu}_r,\vect{\mu}_g\) and covariance matrices \(\mat{\Sigma}_r,\mat{\Sigma}_g\), a Fr\'echet-style distance is
+\begin{equation}
+  d_F^2
+  = \lVert \vect{\mu}_r-\vect{\mu}_g\rVert_2^2
+  + \mathrm{Tr}\!\left(
+      \mat{\Sigma}_r+\mat{\Sigma}_g
+      -2(\mat{\Sigma}_r\mat{\Sigma}_g)^{1/2}
+    \right).
+  \label{eq:week10-frechet}
+\end{equation}
+Using CLIP features changes the representation in which this distribution comparison is performed, but not its basic set-level character.
+
+A set can have good Fr\'echet distance even if predictions are paired with the wrong individual targets. Shuffling all generated images across examples leaves the set unchanged. This is why distribution realism and target alignment are separate properties.
+
+\subsection{Sharpness is yet another property}
+
+The variance of an image Laplacian is a crude high-frequency/sharpness statistic. It can react strongly to blur, but it says little about semantic correctness. A sharpened wrong image can score highly. A smooth but correct image can score poorly.
+
+The point is not to assemble as many metrics as possible. It is to match each measurement to one claim.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{lp{0.23\textwidth}p{0.21\textwidth}p{0.23\textwidth}}
+\toprule
+Metric & Main question & Strength & Important blind spot \\
+\midrule
+Pixel L1 & Are aligned pixels numerically close? & precise for registered reconstruction & can reward averages for multimodal targets \\
+Centred CLIP cosine & Is this output semantically aligned with this target in CLIP space? & per-example semantic comparison & not a complete perceptual or fidelity measure \\
+Feature Fr\'echet & Does the generated set resemble the target set in feature statistics? & distribution-level realism signal & ignores which sample belongs to which target \\
+Laplacian variance & Does the image contain high-frequency structure? & simple blur and sharpness diagnostic & says little about semantics or correctness \\
+\bottomrule
+\end{tabular}
+\caption{Different metrics operationalise different claims. Calling all of them ``quality'' hides the distinction between alignment, distribution-level realism and image sharpness.}
+\label{tab:week10-metrics}
+\end{table}
+
+\section{When the metric becomes the loss}
+
+Evaluation becomes especially consequential when a metric is inserted into the training objective.
+
+The StoryReasoning architecture provides a useful example. Before adding a semantic image term, the scaled model's centred target CLIP similarity was about \(0.056\). Adding a differentiable centred-cosine objective through a \emph{frozen} CLIP encoder increased this similarity to about \(0.17\) within two epochs while pixel L1 remained essentially unchanged.
+
+That result supports a specific claim: the new objective changed the predictions in a direction that the chosen CLIP representation judged more semantically aligned to the target, without materially changing pixelwise error.
+
+It does not prove that every visual property improved. It does not prove that human raters would prefer every output. It does not make CLIP an unbiased oracle. The metric first had to earn its role by separating known candidates in a sensible way.
+
+This closes a loop that began in Week~2. Loss functions and metrics are both choices about what differences matter. In a small regression problem, that choice determines whether the optimum is a mean or median. In a large multimodal system, it can determine whether training rewards semantic plausibility, pixel alignment, diversity, sharpness or some combination.
+
+\begin{optionalexercise}[title={Optional design exercise --- validate before optimising}]
+Suppose you want to add a new image metric \(M\) to a training loss.
+
+Before training, construct at least four deliberately different candidates: the true target, a blurred target, a real but mismatched related image, and a global average/median image. Write down the ranking you believe \(M\) should produce for the property you claim it measures.
+
+Then ask: if the observed ranking disagrees, is the metric wrong, or was the claimed property underspecified? What additional metric would separate the ambiguous cases?
+\end{optionalexercise}
+
+\section{A final scientific habit: locate the bottleneck before changing the model}
+
+Across the module, many apparently similar failures had different causes.
+
+A constant-looking prediction could come from a loss whose statistical optimum is an average, from a dead bottleneck, from representation collapse, from a decoder ignoring its condition, or from a dataset whose target is genuinely uncertain. Adding layers indiscriminately would not diagnose any of those.
+
+A useful workflow is therefore:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Define the task.} What exactly is the input, target and deployment decision?
+  \item \textbf{Build floors and controls.} What can chance, constants, copying or simple heuristics achieve?
+  \item \textbf{Validate the metric.} Does the score distinguish the failures and successes we care about?
+  \item \textbf{Inspect optimisation.} Does the model fit the objective at all?
+  \item \textbf{Inspect generalisation.} Does the learned rule transfer beyond the training examples?
+  \item \textbf{Inspect representation and information use.} Is useful information present, and does the output actually depend on it?
+  \item \textbf{Only then ask what to scale.} More parameters, data, compute, pretraining or conditional capacity should be responses to evidence about the bottleneck.
+\end{enumerate}
+
+This workflow is intentionally less glamorous than choosing the newest architecture. It is also much more transferable.
+
+\section{The compulsory learning thread, completed}
+
+The module began with examples and ends with geometry because every stage changed what we mean by ``learning''.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.15\textwidth}p{0.29\textwidth}p{0.46\textwidth}}
+\toprule
+Stage & Central change in the mental model & Question to keep asking \\
+\midrule
+Weeks 1--2 & examples become an explicit model, loss and optimisation problem & What task have we specified, and what behaviour does the loss reward? \\
+Weeks 3--4 & networks learn intermediate representations and can fail in optimisation/generalisation & What structure is being learned rather than merely fitted? \\
+Week 5 & architecture imposes inductive bias on visual structure & What computation does the architecture make easy? \\
+Week 6 & representation and explanation require evidence & What information is present, and what information is causally used? \\
+Week 7 & sequence tasks require memory & What must survive through time? \\
+Week 8 & ambiguous targets require distributions, not only point estimates & Is there one correct future or several plausible ones? \\
+Week 9 & attention makes information flow conditional & Which information should this computation retrieve now? \\
+Week 10 & scale and pretraining organise distributed geometry & What resource is limiting, what structure is hidden in the representation, and does our metric see it? \\
+\bottomrule
+\end{tabular}
+\caption{The compulsory module is one connected progression rather than a catalogue of model names. Each new mechanism adds a new diagnostic question while retaining the earlier ones.}
+\label{tab:week10-learning-thread}
+\end{table}
+
+Several principles now recur at every scale:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{The objective is a specification.} A low loss means the optimiser satisfied the numerical rule we gave it, not necessarily the intention we had in mind.
+  \item \textbf{A representation is not automatically useful because it is high-dimensional.} Measure its geometry, decodability and causal role.
+  \item \textbf{Architecture changes information and computation paths.} Convolutions, recurrence, attention and expert routing are different inductive biases, not magic labels.
+  \item \textbf{Generalisation is not training fit.} More capacity can improve one while harming or leaving the other unchanged.
+  \item \textbf{Conditional systems need conditional tests.} Shuffle or remove a condition and see whether behaviour changes.
+  \item \textbf{Uncertainty belongs in the model when the task is uncertain.} A deterministic mean cannot become a multimodal distribution merely by becoming larger.
+  \item \textbf{Metrics must earn our trust.} Test them against known floors, counterexamples and interventions before optimising them.
+  \item \textbf{Scale changes the engineering regime, not the logic of evidence.} Larger systems still require hypotheses, controls and measurements that match the scientific claim.
+\end{itemize}
+
+\begin{keyidea}
+The most transferable skill in deep learning is not recognising an architecture diagram. It is being able to look at a learning system and ask: what information enters, what computation is possible, what objective supplies the learning signal, what representation emerges, what evidence shows that the intended signal is used, and what alternative explanation has been ruled out?
+\end{keyidea}
+
+\section{Optional continuation: where does learning end?}
+
+This is the end of the compulsory module. The core learning thread is complete at representation geometry: examples become objectives; objectives drive optimisation; architectures shape representations; memory and attention route information; scale and pretraining change how that information is distributed and organised.
+
+There is, however, one useful boundary we have deliberately not made compulsory. The conventional story says that learning happens during training and inference merely applies the learned parameters. Modern systems blur that boundary. A model can change its behaviour from demonstrations in a context window, retrieve external information, allocate extra computation to difficult examples, sample and rerank alternatives, or even update some state or parameters at test time.
+
+Week~11 treats those mechanisms as an optional extension. Its question is not needed to understand the core module, but it follows naturally from it:
+\begin{center}
+  \emph{if a trained system can retrieve, adapt or perform search during inference, where exactly does the learning live?}
+\end{center}
+
+The answer will require the same discipline used throughout these ten weeks. We will distinguish parameters from context, memory from representation, retrieval from generation, and additional computation from additional knowledge. Whether or not we continue to that optional week, the central habit remains the same: identify the mechanism, specify the objective, and demand evidence for the claim.
