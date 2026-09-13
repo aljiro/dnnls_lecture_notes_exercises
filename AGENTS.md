@@ -36,6 +36,8 @@ Do not reveal the hidden objective too early. Prefer the learning sequence:
 
 Each week has a notebook-level Gemini instruction file. Keep the **entire instruction file safely below 4,500 characters**; aim around 3,500–4,000. It should preserve one-cell-per-prompt discipline, global investigation numbering, simple implementations, concise student-facing comments, and the week's conceptual boundaries.
 
+The one-cell rule should be explicit: **Gemini's entire response to each student prompt must be exactly one executable Python code cell.** It should not place prose, markdown, or a second code block outside that cell. Brief explanations requested by the prompt belong inside the cell as comments or printed output. Fixes/modifications replace the current investigation and keep its existing investigation number.
+
 Gemini should act more like a **runtime / well-briefed teaching assistant** than a lecturer. It may handle data loading, plotting, device setup and boilerplate, but the student's intellectual loop should remain visible.
 
 When Gemini creates an important classifier, model, loss, update rule, representation or component, the copied student prompt should usually ask it to **briefly explain what it created**, its important inputs/outputs, and the role of the main parameters. Do not make every prompt explanation-heavy.
