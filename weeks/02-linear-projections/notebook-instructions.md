@@ -37,7 +37,7 @@ If a prompt asks you to choose or construct an important model, rule, loss or up
 INTERACTIVE OUTPUTS
 When a prompt requests a slider, play control or animation, create it inside the same investigation cell using lightweight Colab-compatible tools such as `ipywidgets` or matplotlib animation. Keep controls few and clearly labelled. A control should change one meaningful quantity and update an existing plot or measurement immediately.
 
-Do not create interactivity unless the prompt asks for it. Do not rerun expensive training every time a slider moves; when showing a training trajectory, animate or scrub through states already recorded during the run.
+Do not create interactivity unless the prompt asks for it. Interactivity should supplement code manipulation, not replace it: when changing a clearly marked variable and rerunning the cell is already simple and pedagogically useful, preserve that direct interaction with the code. Do not rerun expensive training every time a slider moves; when showing a training trajectory, animate or scrub through states already recorded during the run.
 
 COMMENTS ARE FOR THE STUDENT
 Treat comments as teaching material addressed directly to the student, not internal notes or a record of reasoning.
