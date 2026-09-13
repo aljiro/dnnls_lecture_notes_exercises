@@ -1,2 +1,454 @@
-\chapter{Building Blocks: Basic Language Encoders}
+\chapter{Language, sequence and memory}
 \label{chap:week07}
+
+An image arrives all at once. A sentence does not. Its meaning depends not only on which symbols appear, but on the order in which they appear and on relationships that may stretch across many positions. The sentences ``the dog chased the cat'' and ``the cat chased the dog'' contain almost the same words, yet they describe different events. A representation that remembers only which words occurred has already lost something essential.
+
+This makes sequence modelling a problem of \emph{memory}. As each element arrives, what should be preserved from the past? What may safely be forgotten? How should the model combine what it sees now with what it remembers from before? And when the task is to generate a sequence, how does the model turn a learned distribution over possible next elements into one actual output?
+
+These questions connect directly to the previous weeks. Week~5 asked what information an architecture makes easy to represent. Week~6 asked what evidence shows that information is present or used. This week adds time: information can be present at one position, transformed repeatedly, forgotten, or retrieved much later.
+
+\begin{keyidea}
+A sequence model is not merely a network applied many times. It is a mechanism for deciding what information from earlier positions survives long enough to influence later predictions.
+\end{keyidea}
+
+We will begin with language because it makes the problem concrete, but the same principles apply to audio, video, sensor streams, financial series and any task in which order matters.
+
+\section{Turning language into numbers}
+
+A neural network consumes numbers, while language begins as a stream of symbols. The first step is therefore representational: turn text into discrete units and then turn those units into vectors.
+
+\subsection{Words, tokens and subwords}
+
+A \emph{token} is one unit presented to the model. A token need not correspond exactly to a written word. A simple word-level system might map
+\[
+  \text{``the dog runs''}
+  \longrightarrow
+  [\texttt{the},\texttt{dog},\texttt{runs}],
+\]
+but a subword tokenizer may divide an uncommon word into several reusable pieces. This reduces the need for a vocabulary containing every possible word form and gives rare or novel words representations assembled from familiar components.
+
+Tokenisation therefore already introduces an inductive choice. A word-level vocabulary gives common words a single identity but needs an unknown-token mechanism for unseen words. Character-level tokenisation can represent any spelling but produces long sequences. Subword methods occupy a useful middle ground: a frequent word may remain whole while an uncommon one is decomposed into pieces.
+
+The tokenizer assigns each token an integer identifier. The integer itself has no useful geometry. Token 412 is not intrinsically ``closer'' to token 413 than to token 900. The ID is an address into a representation table.
+
+\subsection{One-hot vectors and learned embeddings}
+
+Suppose a vocabulary contains \(V\) tokens. A one-hot representation for token \(i\) is a vector in \(\R^V\) whose \(i\)-th coordinate is one and all others are zero. Distinct tokens are equally far apart and share no structure by construction.
+
+An embedding layer replaces this sparse vector with a dense vector
+\[
+  \vect{e}_i \in \R^d,
+\]
+where normally \(d \ll V\). Equivalently, an embedding matrix \(\mat{E}\in\R^{V\times d}\) stores one learned row per token. Looking up token \(i\) returns row \(\mat{E}_{i,:}\).
+
+When the embedding table is learned as part of a language task, tokens that are useful in similar contexts can acquire related vectors. This is one of the central ideas behind distributed word representations \parencite{bengio2003,mikolov2013}. The geometry is learned because it helps the objective; semantic structure is an emergent property of that training, not something guaranteed by the word \emph{embedding}.
+
+\begin{pytorchbox}{token embeddings}
+embedding = nn.Embedding(num_embeddings=vocab_size,
+                         embedding_dim=64)
+
+# token_ids: [batch, time]
+x = embedding(token_ids)       # [batch, time, 64]
+\end{pytorchbox}
+
+Notice the new axis: time. An image tensor had spatial dimensions. A token sequence has a position dimension. The vector at one position says which token occurred there, but the model must still combine information across positions.
+
+\subsection{A bag of words forgets order}
+
+Consider token embeddings \(\vect{e}_1,\ldots,\vect{e}_T\). If we represent a sentence by their mean,
+\[
+  \bar{\vect{e}}=\frac{1}{T}\sum_{t=1}^{T}\vect{e}_t,
+\]
+then any permutation of those same token vectors produces exactly the same result. The representation is invariant to order.
+
+That may be useful for some tasks. If the question is simply which topics or words appear, a pooled representation can work surprisingly well. But it cannot distinguish two sequences that contain the same multiset of tokens in different orders.
+
+This gives us the first memory question:
+
+\begin{center}
+\emph{How can a representation depend on what came before, not merely on what is present?}
+\end{center}
+
+\begin{figure}[ht]
+  \figureaction{Create a three-panel diagram for the sentences ``the dog chased the cat'' and ``the cat chased the dog''. Panel 1: token embeddings as ordered rows. Panel 2: mean pooling, showing both sentences collapse to the same vector. Panel 3: a recurrent state updated left-to-right, showing different state trajectories for the two orders.}
+  \caption{Token identity alone does not encode a sequence. An order-invariant pooling operation can destroy distinctions that a sequential update preserves.}
+  \label{fig:week7-order}
+\end{figure}
+
+\section{Recurrent neural networks: a state that moves through time}
+
+A recurrent neural network (RNN) introduces a hidden state \(\vect{h}_t\) that is updated as each input arrives. A simple recurrent update is
+\begin{equation}
+  \vect{h}_t
+  = \phi\!\left(
+      \mat{W}_x\vect{x}_t
+      + \mat{W}_h\vect{h}_{t-1}
+      + \vect{b}
+    \right),
+  \label{eq:week7-rnn}
+\end{equation}
+where \(\vect{x}_t\) is the representation of the current token and \(\phi\) is typically a nonlinear activation such as tanh.
+
+The same parameters \(\mat{W}_x\), \(\mat{W}_h\) and \(\vect{b}\) are reused at every time step. This is weight sharing through time. Instead of learning a different transformation for ``position 1'', ``position 2'' and so on, the model learns one state-update rule and applies it repeatedly \parencite{elman1990}.
+
+The hidden state is therefore a learned summary of the prefix:
+\[
+  \vect{h}_t = f_\theta(\vect{x}_1,\ldots,\vect{x}_t).
+\]
+It is common to call this state the model's \emph{memory}. That language is useful, provided we do not imagine a literal storage box containing an intact copy of every previous token. The state is a fixed-size vector whose contents are continually transformed. Information can be strengthened, entangled, compressed or lost.
+
+\subsection{The same rule, unrolled}
+
+Although Equation~\eqref{eq:week7-rnn} describes one update, the whole sequence can be visualised by unrolling the recurrence:
+\[
+  \vect{h}_0
+  \xrightarrow{\vect{x}_1}
+  \vect{h}_1
+  \xrightarrow{\vect{x}_2}
+  \vect{h}_2
+  \xrightarrow{\vect{x}_3}
+  \cdots
+  \xrightarrow{\vect{x}_T}
+  \vect{h}_T.
+\]
+The parameters are shared, but the intermediate states differ because the input history differs.
+
+This makes order matter automatically. If two tokens swap positions, the second token is processed from a different preceding state, and all later states may change.
+
+For a sequence-classification problem, the final state \(\vect{h}_T\) might feed a classifier. For next-token prediction, a head can be applied at every position. For a sequence-to-sequence task, one recurrent network may encode an input sequence and another may decode an output sequence.
+
+\begin{pytorchbox}{a recurrent sequence encoder}
+gru = nn.GRU(input_size=embedding_dim,
+             hidden_size=hidden_dim,
+             batch_first=True)
+
+states, h_final = gru(x)
+# states: [batch, time, hidden_dim]
+# h_final: [1, batch, hidden_dim]
+\end{pytorchbox}
+
+The distinction between \texttt{states} and \texttt{h\_final} will matter later. The full sequence of states keeps one representation per position. The final state compresses the whole history into one vector.
+
+\subsection{Backpropagation through time}
+
+Training an RNN still uses backpropagation. The difference is that the same transformation appears repeatedly in the computational graph. To understand how an early token or parameter influenced a later loss, the backward pass follows the chain through many recurrent steps. This is called \emph{backpropagation through time} (BPTT).
+
+If a loss at time \(T\) depends on an early state \(\vect{h}_1\), the derivative contains a product of local Jacobians along the path from time 1 to time \(T\). The idea is the same one we encountered with deep feed-forward networks, except that depth now grows with sequence length.
+
+This immediately revives a Week~4 problem. Repeated multiplication by derivatives smaller than one can make an early influence vanish; repeated multiplication by large factors can make it explode. A recurrent network can therefore be mathematically capable of remembering a fact while being difficult to train to preserve it over a long delay.
+
+\begin{keyidea}
+In a recurrent network, sequence length creates computational depth. A dependency across 100 positions creates a much longer information and gradient path than a dependency across five positions.
+\end{keyidea}
+
+\begin{optionalexercise}[title={Optional mathematics --- why repeated derivatives matter}]
+Consider the scalar recurrence
+\[
+  h_t = \tanh(w h_{t-1}).
+\]
+Ignoring other inputs, write \(\partial h_T/\partial h_0\) as a product of local derivatives. What happens when the magnitude of most factors is below one? What happens if they are consistently greater than one?
+
+The purpose is not to prove that every RNN must fail, but to see why a long temporal path creates the same gradient-scale problem as a very deep network.
+\end{optionalexercise}
+
+\section{Gating: learning what to keep and what to change}
+
+The long short-term memory network (LSTM) and gated recurrent unit (GRU) were designed to make persistent information easier to maintain across recurrent updates \parencite{hochreiter1997,cho2014}. Their exact gate equations differ, but the important idea is shared: the network learns how strongly to preserve old state, incorporate new evidence and discard information that is no longer useful.
+
+For a GRU, one part of the update can be viewed schematically as
+\begin{equation}
+  \vect{h}_t
+  = (1-\vect{z}_t)\odot\vect{h}_{t-1}
+  + \vect{z}_t\odot\tilde{\vect{h}}_t,
+  \label{eq:week7-gru-update}
+\end{equation}
+where \(\vect{z}_t\) is a learned update gate between zero and one, \(\tilde{\vect{h}}_t\) is a candidate new state, and \(\odot\) denotes element-wise multiplication.
+
+The equation is useful because it exposes a qualitatively different path. If one coordinate of \(\vect{z}_t\) is close to zero, the corresponding old-state coordinate can pass forward with little change. If the gate is close to one, the candidate replaces it more strongly. The model can therefore learn a spectrum between remembering and updating rather than being forced to overwrite the state in the same way at every step.
+
+An LSTM makes this persistence even more explicit through a separate cell state and learned input, output and forget gates. Students do not need to memorise every formula to understand its purpose: create controlled routes along which information and gradients can survive.
+
+Gating is not perfect memory. A GRU trained on sequences up to length 30 may still fail badly at length 300. The architecture changes the path through which information can survive; it does not remove distribution shift, capacity limits or optimisation difficulty.
+
+\begin{checkpointbox}
+A GRU performs well on a delayed-memory task up to 40 steps but degrades at 100. Which claim is justified?
+
+\begin{enumerate}[leftmargin=*]
+  \item ``GRUs cannot model long-term dependencies.''
+  \item ``This trained GRU preserved the tested information over tens of steps, but the evidence does not support arbitrary-length memory.''
+\end{enumerate}
+The second statement is the defensible one. Memory claims need an explicit tested range.
+\end{checkpointbox}
+
+\section{Language modelling: predicting one token from its history}
+
+Recurrence gives us a way to summarise a prefix. A language model uses that summary to assign probabilities to what might come next.
+
+For a token sequence \(x_1,\ldots,x_T\), the chain rule of probability gives the autoregressive factorisation
+\begin{equation}
+  p(x_1,\ldots,x_T)
+  = \prod_{t=1}^{T} p(x_t \mid x_{<t}),
+  \label{eq:week7-autoregressive}
+\end{equation}
+where \(x_{<t}\) denotes all earlier tokens.
+
+The model's job is therefore repeated next-token prediction. At time \(t\), the hidden state summarises the prefix and a linear output layer produces one logit per vocabulary token. Softmax turns those logits into a categorical distribution over the next token.
+
+This framing is powerful because no sentence-level label is needed. Every sequence supplies many training targets: after each prefix, the next observed token is the target. This is a form of self-supervision.
+
+\subsection{Teacher forcing}
+
+During training, we normally know the true sequence. To predict token \(x_t\), the decoder is given the true preceding tokens \(x_{<t}\). This is called \emph{teacher forcing}.
+
+For the sentence
+\[
+  [\texttt{<bos>},\texttt{the},\texttt{dog},\texttt{runs},\texttt{<eos>}],
+\]
+a training pair can be written as
+\[
+\begin{array}{ccccc}
+\text{input:} & \texttt{<bos>} & \texttt{the} & \texttt{dog} & \texttt{runs} \\
+\text{target:} & \texttt{the} & \texttt{dog} & \texttt{runs} & \texttt{<eos>}
+\end{array}
+\]
+The target is simply shifted by one position.
+
+Teacher forcing makes optimisation easier because the model is trained from correct prefixes rather than from its own early mistakes. But it also creates a discrepancy. At generation time the true future tokens are unavailable. The model must feed back tokens produced by itself, so an early mistake changes the context for all later predictions.
+
+This is not a contradiction. Training and inference are solving related but not identical computational situations.
+
+\subsection{Cross-entropy and perplexity}
+
+At each position the model predicts a probability for the observed next token. Cross-entropy penalises low probability on that token. If the average token cross-entropy is \(L\), a common summary is the \emph{perplexity}
+\begin{equation}
+  \mathrm{PPL} = e^L.
+\end{equation}
+Lower perplexity means that, on average, the model assigns more probability to the observed next tokens.
+
+Perplexity is useful because it evaluates the predictive distribution rather than one arbitrary generated string. But comparisons should use compatible tokenisation and data: changing from words to subwords changes what counts as one prediction step.
+
+\section{The model learns a distribution; decoding chooses an output}
+
+After training, the model does not contain one predetermined continuation. At every step it contains a probability distribution over possible next tokens. A decoding rule turns that distribution into an actual sequence.
+
+\subsection{Greedy decoding}
+
+Greedy decoding chooses
+\[
+  x_t = \arg\max_k p(x_t=k\mid x_{<t})
+\]
+at every step. It is deterministic and easy to inspect. It can also over-emphasise common local choices. In a corpus with repeated stylistic openings, many distinct prompts can fall into the same high-probability phrase and then continue along similar trajectories.
+
+A fluent greedy output is therefore weak evidence about the full distribution the model has learned.
+
+\subsection{Sampling and temperature}
+
+Sampling instead draws a token from the predicted categorical distribution. Temperature modifies how peaked that distribution is. Given logits \(z_k\), one common definition is
+\begin{equation}
+  p_\tau(k)
+  = \frac{\exp(z_k/\tau)}{\sum_j \exp(z_j/\tau)}.
+\end{equation}
+When \(\tau<1\), high-logit tokens become relatively more dominant. When \(\tau>1\), probability mass is spread more broadly. Top-\(k\) or nucleus sampling can additionally restrict sampling to a plausible subset of candidates.
+
+These rules change inference, not the trained parameters. If higher temperature produces varied but incoherent text, the model has not been retrained into a worse state. We are exploring lower-probability regions of the same learned distribution.
+
+\begin{figure}[ht]
+  \figureaction{Show one next-token distribution as a bar chart under three temperatures: low, 1.0, high. Beneath it show three continuation trees from the same prefix: greedy repeatedly takes the modal branch; moderate sampling explores several plausible branches; high temperature reaches more low-probability branches.}
+  \caption{Training learns a next-token distribution. Decoding determines how one path is selected from that distribution.}
+  \label{fig:week7-decoding}
+\end{figure}
+
+\section{When a decoder ignores its condition}
+
+Many generation problems are conditional. We may want to generate a caption from an image, a reply from a question, or the next StoryReasoning description from earlier story context.
+
+Let \(\vect{c}\) denote a conditioning representation. A conditional autoregressive model aims to learn
+\begin{equation}
+  p(x_1,\ldots,x_T\mid \vect{c})
+  = \prod_t p(x_t\mid x_{<t},\vect{c}).
+\end{equation}
+The condition may initialise the recurrent state, be concatenated with every token embedding, or enter through a richer memory mechanism.
+
+But connecting \(\vect{c}\) to the decoder in code does not prove that the decoder uses it.
+
+\subsection{Why teacher forcing can make the condition easy to ignore}
+
+Suppose descriptions in a dataset have highly predictable local syntax. Once the decoder sees the true previous token, that token may already provide most of the information needed for the next prediction. The explicit condition can become a weak secondary signal.
+
+A model can therefore achieve low teacher-forced cross-entropy while producing almost the same distribution when the condition is replaced by a wrong one. The optimisation has not necessarily failed. The model found an easier predictive route.
+
+This is exactly the kind of claim Week~6 taught us to test behaviourally.
+
+A simple control is the \emph{shuffled-condition test}:
+\begin{enumerate}[leftmargin=*]
+  \item evaluate the trained decoder with the correct condition;
+  \item randomly pair conditions with the wrong target sequences;
+  \item keep the token histories unchanged;
+  \item measure how much the loss or output distribution changes.
+\end{enumerate}
+If performance barely changes, the condition has weak causal influence on the predictions under that evaluation regime.
+
+\begin{keyidea}
+``Conditional architecture'' is a statement about connectivity. ``Condition-dependent behaviour'' is an empirical claim and needs an intervention or control.
+\end{keyidea}
+
+\subsection{Making the easy signal less reliable}
+
+One way to encourage stronger conditioning is to make the teacher-forced history less perfectly informative. \emph{Token dropout} occasionally replaces an earlier ground-truth token with a mask or unknown token during training. The decoder must then rely more heavily on other information, including the condition.
+
+This should be interpreted carefully. Token dropout does not somehow tell the network what the condition means. It changes the information structure of the training problem: one route becomes less reliable, increasing the value of another.
+
+The same principle appears throughout deep learning. If two signals both solve a task, the model has no obligation to prefer the one we intended unless the architecture, data or objective makes that route advantageous.
+
+\section{Sequence-to-sequence models: encoding one sequence, decoding another}
+
+Some tasks map a sequence to another sequence rather than merely continuing the same one. Machine translation is the classic example. An encoder reads an input sequence and produces a representation; a decoder generates an output sequence conditioned on that representation \parencite{sutskever2014}.
+
+In the simplest recurrent sequence-to-sequence design,
+\[
+  \text{input sequence}
+  \longrightarrow
+  \vect{h}_{\mathrm{final}}
+  \longrightarrow
+  \text{output decoder}.
+\]
+The final encoder state acts as a fixed-size interface between the two sequences.
+
+This architecture makes the division of labour clear. The encoder answers, ``what should be remembered about the input?'' The decoder answers, ``how should that remembered information shape each next output token?''
+
+But it also exposes a bottleneck. Every distinction in a long input sequence must be compressed into one vector before decoding begins. Different output steps may need different parts of the source, yet all must recover those details from the same summary.
+
+\begin{architecturebox}
+The StoryReasoning system separates two jobs that are easy to confuse.
+
+\textbf{Input descriptions must be encoded.} Each frame description is converted into a fixed vector so that a sequence model can combine four descriptions. In the architecture narrative, a frozen MiniLM encoder supplies a 384-dimensional sentence representation. Because the encoder is pretrained and frozen, the later model begins with a useful language representation rather than learning sentence semantics from the relatively small StoryReasoning corpus.
+
+\textbf{The fifth description must be generated.} A separate LSTM language model learns the local statistics of StoryReasoning descriptions. Pretrained unconditionally, it reaches held-out perplexity about \(17.9\). This is a different job: predicting tokens one after another rather than mapping a whole sentence to one vector.
+
+That distinction matters when the two pieces are joined. A conditional decoder can still ignore the story representation if teacher-forced previous words already predict the next word well. In the architecture experiments, comparing text cross-entropy under the true versus a shuffled condition became a direct test of whether the context actually mattered. Word dropout increased the incentive to use the condition.
+
+The lesson is architectural and diagnostic: \emph{encoding language, modelling language and conditioning language generation are three different problems}. Good performance on one does not prove success on the others.
+\end{architecturebox}
+
+This also explains why a single generated sentence is a poor diagnostic. The corpus itself has strong recurring style. Greedy decoding may select a modal phrase even when the conditional distribution differs meaningfully across inputs. Distributional metrics, sampled outputs and shuffled-condition controls answer different questions.
+
+\section{A fixed hidden state is an information bottleneck}
+
+A recurrent state has an attractive property: computation grows sequentially, and the same update rule can process sequences of different lengths. But every early detail that matters at time \(T\) must survive all intermediate updates.
+
+Consider a four-description StoryReasoning window. A GRU can process the four sentence embeddings and use \(\vect{h}_4\) to predict an embedding for description five. If retrieval improves over copy-last and mean-embedding baselines, the recurrent model has learned something useful about context. Yet this still does not prove that every position matters equally or that order is essential.
+
+The controls from earlier weeks remain valuable:
+\begin{itemize}[leftmargin=*]
+  \item replace the entire context with another story window;
+  \item reverse or permute the four positions;
+  \item blank one input position at a time;
+  \item compare against copy-last and mean-context baselines.
+\end{itemize}
+
+These interventions distinguish \emph{using the window's content} from \emph{using its order}. A recurrent architecture is order-sensitive in principle, but a trained model can still learn a nearly order-insensitive solution if that is sufficient for the data.
+
+The bottleneck becomes more severe as context grows. If twenty earlier elements may matter for different reasons, asking one fixed-size state to preserve every useful distinction becomes increasingly demanding.
+
+\begin{figure}[ht]
+  \figureaction{Draw a recurrent encoder processing six source states h1...h6. Left: a fixed-summary decoder can access only h6, with all earlier information forced through the chain. Right: an attention-style decoder query connects directly to all six stored states and assigns different weights to them. Do not show multi-head attention or transformer block details.}
+  \caption{Recurrence compresses the past into a moving state. Attention introduces a shorter route: retain multiple earlier states and retrieve a task-relevant combination when needed.}
+  \label{fig:week7-attention-motivation}
+\end{figure}
+
+\section{Attention: retrieve instead of remembering everything in one vector}
+
+The fixed-state bottleneck motivated attention mechanisms in sequence-to-sequence models \parencite{bahdanau2015}. Instead of requiring the encoder's final state to contain everything, keep a collection of representations
+\[
+  \vect{h}_1,\ldots,\vect{h}_T.
+\]
+For a current decoding step, construct a \emph{query} describing what information is needed. Compare that query with a \emph{key} derived from each stored position, turn the resulting scores into weights, and use those weights to combine the corresponding \emph{values}.
+
+At a high level:
+\[
+\begin{aligned}
+  s_i &= \mathrm{score}(\vect{q},\vect{k}_i),\\
+  \alpha_i &= \mathrm{softmax}(s_i),\\
+  \vect{c} &= \sum_i \alpha_i\vect{v}_i.
+\end{aligned}
+\]
+The context vector \(\vect{c}\) is therefore not one permanent summary. It is a summary created for the current query.
+
+This changes the information path. To use an early token, a decoder no longer has to rely only on that token's influence surviving every recurrent update. The current query can connect more directly to an earlier stored representation.
+
+For now, three ideas are enough:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{query}: what information am I looking for now?
+  \item \textbf{key}: how should each stored item advertise what it contains?
+  \item \textbf{value}: what information should be retrieved if that item is relevant?
+\end{enumerate}
+
+Week~9 will derive scaled dot-product attention, masking, multi-head attention, self-attention and cross-attention in detail.
+
+And Week~6's warning still applies: the weights \(\alpha_i\) are inspectable, but an inspectable weight is not automatically a faithful causal explanation of the model's prediction.
+
+\section{The first transformer view}
+
+Once we allow representations to interact through attention, recurrence is no longer the only way to combine sequence positions. A transformer applies attention so that positions can exchange information directly, then processes each resulting representation through a feed-forward network, with residual connections and normalisation around these sublayers \parencite{vaswani2017}.
+
+A high-level encoder block can be read as
+\[
+  \text{representations}
+  \longrightarrow
+  \text{self-attention}
+  \longrightarrow
+  \text{MLP}
+  \longrightarrow
+  \text{updated representations},
+\]
+with residual and normalisation paths stabilising the computation.
+
+The crucial contrast with recurrence is the information path. In an RNN, token 1 influences token 100 through a chain of recurrent transitions. In self-attention, a representation at position 100 can interact directly with position 1 within one attention layer.
+
+There is also a computational consequence. Recurrent states must normally be computed in order: \(\vect{h}_3\) needs \(\vect{h}_2\). During transformer training, many positions can be processed in parallel because attention operates over a whole matrix of token representations at once. This parallelism helped make transformers especially effective at scale.
+
+Attention alone, however, does not know token order. If the same set of vectors is permuted, a bare self-attention operation permutes its outputs correspondingly. Transformers therefore need positional information added or encoded in some form. The details return in Week~9.
+
+For autoregressive generation, one limitation remains: even a transformer normally generates output tokens one step at a time because token \(t+1\) depends on the sampled or selected token at \(t\). Parallel training does not imply fully parallel free-running generation.
+
+\begin{checkpointbox}
+Match each problem to the mechanism that addresses it most directly.
+
+\begin{enumerate}[leftmargin=*]
+  \item Same tokens in a different order collapse under mean pooling.
+  \item A vanilla RNN struggles to preserve one early bit across many distractors.
+  \item A conditional decoder scores almost identically after its condition is shuffled.
+  \item Different decoder steps need different details from a long source sequence.
+\end{enumerate}
+
+Possible mechanisms: an order-sensitive sequence computation; gating; stronger conditioning tests/training such as token dropout; attention over stored states. None of these mechanisms is a universal substitute for the others.
+\end{checkpointbox}
+
+\section{What to carry into generative modelling}
+
+This week introduced sequence generation, but its deepest lesson is broader than language.
+
+A model can represent uncertainty about what comes next through a probability distribution. Greedy decoding hides most of that distribution; sampling reveals alternatives. A conditional model can be wired to context yet fail to use it. A recurrent architecture can be order-sensitive yet learn a solution that scarcely depends on order. A hidden state can function as memory over short ranges while losing information over longer ones.
+
+These are all versions of the same principle:
+\begin{center}
+\emph{architecture defines possible information paths; training determines which paths the model actually uses.}
+\end{center}
+
+The next step is to ask a different question. So far, language generation samples among discrete next tokens, but our visual StoryReasoning target may have many plausible future images. Week~8 will move from one deterministic point prediction to explicit generative modelling: latent distributions, sampling, VAEs, adversarial generation and diffusion.
+
+Before moving on, the core Week~7 vocabulary should feel connected rather than memorised:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{tokenisation} chooses the discrete units;
+  \item \textbf{embeddings} turn those units into learned vectors;
+  \item \textbf{recurrence} updates a state in sequence order;
+  \item \textbf{gating} creates learnable routes for preserving and updating information;
+  \item \textbf{autoregressive modelling} factorises a sequence into next-step distributions;
+  \item \textbf{teacher forcing} trains from true prefixes;
+  \item \textbf{decoding} chooses how to turn distributions into actual outputs;
+  \item \textbf{conditioning} adds external information, whose use must be tested;
+  \item \textbf{attention} retrieves different stored information for different queries;
+  \item \textbf{transformers} build sequence computation primarily from attention rather than recurrence.
+\end{itemize}
+
+A useful diagnostic habit closes the chapter. Whenever a sequence model appears to remember or condition successfully, ask: \emph{what intervention would make the claim false if the model were not actually using that information?} The answer may be a shuffled condition, a reversed sequence, a blanked position, a longer delay, or a competing baseline. Memory, like explanation, should be demonstrated rather than inferred from architecture names.
