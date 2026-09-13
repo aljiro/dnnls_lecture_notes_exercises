@@ -1,2 +1,533 @@
-\chapter{Temporal Modelling, Attention and Architectural Integration}
+\chapter{Attention, transformers and information routing}
 \label{chap:week09}
+
+Week~7 introduced a difficulty that recurrence cannot entirely remove. A hidden state can carry information forward, but every useful detail must survive repeated compression into the same vector. Attention offered a different possibility: keep several representations available and retrieve from them when a later computation needs something specific.
+
+Week~8 then added another complication. A model may need to generate several plausible outputs, but those outputs should still depend on the evidence that is present. Randomness can represent uncertainty; it cannot substitute for using the condition correctly.
+
+This week joins those two ideas. The central question is no longer only \emph{what information can the model represent?} It is:
+\begin{center}
+  \emph{which information is allowed to interact with which other information, and how is that choice made?}
+\end{center}
+
+Attention is useful because it turns that question into a differentiable computation. A query says what is currently needed. Keys describe how stored items can be matched. Values carry the information that will be routed forward. Transformers build most of their sequence computation from repeated versions of this operation.
+
+\begin{keyidea}
+Attention is best understood as content-dependent information routing. A transformer is powerful not because every token is mixed with every other token indiscriminately, but because each representation can construct a query and retrieve a different weighted combination of the available information.
+\end{keyidea}
+
+This viewpoint also keeps us from assigning too much meaning to architecture names. Self-attention, causal attention and cross-attention use nearly the same mathematical machinery. What changes is where queries, keys and values come from, which interactions are permitted, and what objective trains the resulting computation.
+
+\section{From a memory lookup to attention}
+
+Suppose a system stores four memories. Each memory has two parts:
+\[
+  (\vect{k}_1,\vect{v}_1),\ldots,(\vect{k}_4,\vect{v}_4).
+\]
+The key \(\vect{k}_i\) describes how memory \(i\) should be matched. The value \(\vect{v}_i\) contains the information to return if that memory is relevant.
+
+Now introduce a query \(\vect{q}\). A simple hard lookup would choose the key most similar to the query,
+\[
+  i^* = \arg\max_i \mathrm{sim}(\vect{q},\vect{k}_i),
+\]
+and return \(\vect{v}_{i^*}\).
+
+That would be a perfectly sensible retrieval rule, but it has an awkward property for gradient-based learning: the identity of the selected item changes discretely. A small change in the query may do nothing until one score crosses another, at which point the returned value jumps.
+
+Attention replaces this hard decision with a soft one. We first compute one score per memory,
+\begin{equation}
+  s_i = \mathrm{score}(\vect{q},\vect{k}_i),
+\end{equation}
+turn the scores into non-negative weights that sum to one,
+\begin{equation}
+  \alpha_i = \frac{e^{s_i}}{\sum_j e^{s_j}},
+\end{equation}
+and return the weighted value mixture
+\begin{equation}
+  \vect{o} = \sum_i \alpha_i\vect{v}_i.
+  \label{eq:week9-soft-retrieval}
+\end{equation}
+
+The output can now change smoothly as the query changes. Near one key, most weight may fall on one memory. Halfway between two compatible keys, the output may become a mixture of their values.
+
+That mixture is not a defect. It is what makes the retrieval differentiable. The network can learn to sharpen or broaden the routing by changing the query and key representations.
+
+\subsection{Keys and values do different jobs}
+
+It is tempting to collapse keys and values into one vector, but separating them is useful. The information that makes an item easy to select need not be the same information we want to retrieve.
+
+Imagine a database of people. A key might encode identity, while the value stores an address. We match on one property and return another. Neural attention uses the same freedom. One projection can create coordinates useful for deciding relevance; another can create coordinates useful for downstream computation.
+
+This distinction becomes especially important in cross-attention. A text-derived query may compare against visual keys that describe image content, then retrieve visual values that preserve a richer set of features than the matching coordinates alone.
+
+\begin{figure}[ht]
+  \figureaction{Draw one query on the left and four memory items on the right. Each memory item should have a key box above a value box. Show query-to-key score arrows, a softmax producing four weights, then weighted arrows from the four values into one output vector. Include two different queries over the same memory to show that routing can change while the stored values stay fixed.}
+  \caption{Attention separates matching from retrieval. Queries are compared with keys; the resulting weights determine how values are combined. The same memory can therefore be routed differently for different queries.}
+  \label{fig:week9-qkv-memory}
+\end{figure}
+
+\section{Scaled dot-product attention}
+
+Transformers normally use learned linear projections to construct queries, keys and values. Given an input representation \(\vect{x}\), one head may compute
+\[
+  \vect{q}=\mat{W}_Q\vect{x},\qquad
+  \vect{k}=\mat{W}_K\vect{x},\qquad
+  \vect{v}=\mat{W}_V\vect{x}.
+\]
+The matrices are learned. Their role is not merely dimensional bookkeeping: they determine which directions matter for matching and which information is carried in the retrieved value.
+
+For one query \(\vect{q}\in\R^{d_k}\) and one key \(\vect{k}_i\in\R^{d_k}\), the basic compatibility score is a dot product
+\[
+  \vect{q}^{\mathsf T}\vect{k}_i.
+\]
+A large positive score means that the learned query and key coordinates are strongly aligned.
+
+Transformer attention uses the scaled score
+\begin{equation}
+  s_i = \frac{\vect{q}^{\mathsf T}\vect{k}_i}{\sqrt{d_k}}.
+  \label{eq:week9-scaled-score}
+\end{equation}
+The division by \(\sqrt{d_k}\) matters because the magnitude of an unnormalised dot product tends to grow with dimension. Large logits drive softmax toward extremely sharp distributions, where small score differences produce almost one-hot weights and gradients can become less useful. Scaling keeps the numerical range more controlled \parencite{vaswani2017}.
+
+For a whole set of queries, keys and values we write matrices
+\[
+  \mat{Q}\in\R^{n_q\times d_k},\qquad
+  \mat{K}\in\R^{n_k\times d_k},\qquad
+  \mat{V}\in\R^{n_k\times d_v}.
+\]
+Then all pairwise scores are computed at once:
+\begin{equation}
+  \mathrm{Attention}(\mat{Q},\mat{K},\mat{V})
+  =
+  \mathrm{softmax}\!\left(
+      \frac{\mat{Q}\mat{K}^{\mathsf T}}{\sqrt{d_k}}
+    \right)\mat{V}.
+  \label{eq:week9-attention-matrix}
+\end{equation}
+The softmax is applied across the keys for each query row.
+
+This compact equation contains the entire mechanism:
+\begin{enumerate}[leftmargin=*]
+  \item \(\mat{Q}\mat{K}^{\mathsf T}\) asks how compatible every query is with every key;
+  \item softmax turns those scores into routing weights;
+  \item multiplying by \(\mat{V}\) returns one weighted value mixture per query.
+\end{enumerate}
+
+\begin{pytorchbox}{one attention head, written explicitly}
+Q = x_q @ W_Q                    # [B, nq, dk]
+K = x_kv @ W_K                   # [B, nk, dk]
+V = x_kv @ W_V                   # [B, nk, dv]
+
+scores = Q @ K.transpose(-2, -1)
+scores = scores / (dk ** 0.5)    # [B, nq, nk]
+weights = scores.softmax(dim=-1)
+out = weights @ V                # [B, nq, dv]
+\end{pytorchbox}
+
+The code is short enough that the tensor shapes are worth understanding. Attention does not require a mysterious dedicated operation. It is projection, matrix multiplication, scaling, masking when necessary, softmax and another matrix multiplication.
+
+\begin{optionalexercise}[title={Optional mathematics --- why the square-root scaling appears}]
+Assume the coordinates of \(\vect{q}\) and \(\vect{k}\) are independent, mean zero and have variance approximately one. Consider the dot product
+\[
+  \vect{q}^{\mathsf T}\vect{k}=\sum_{j=1}^{d_k}q_jk_j.
+\]
+Under these simplifying assumptions, estimate how the variance of the sum grows with \(d_k\). What happens to that variance after dividing by \(\sqrt{d_k}\)?
+
+This argument is only a scale heuristic, not a claim that trained query/key coordinates remain independent Gaussians. Its purpose is to explain why the normalisation depends on dimension.
+\end{optionalexercise}
+
+\section{A query should depend on the question}
+
+A learned query can be useful even if it is fixed across every example. For instance, a classification token can learn a generic request such as ``collect information useful for this task.'' But a fixed query has an important limitation: the request itself cannot adapt to the current content.
+
+Suppose four movie frames form a memory. If the useful frame position changes from one story window to another, a query that is identical for every example may learn a broad position preference instead of an example-specific retrieval rule. It may decide that frame 3 is often useful without learning \emph{why} frame 3 is useful in this particular case.
+
+A content-dependent query changes with the example:
+\[
+  \vect{q}=f_\theta(\text{current state or condition}).
+\]
+Now the compatibility scores can change because the information need changed. The same keys and values can be routed differently under different queries.
+
+This is one of the most important conceptual upgrades from simple pooling. Mean pooling says that every stored item contributes according to a fixed rule. Attention says that the contribution can depend on the current question.
+
+\begin{keyidea}
+Content-dependent attention is conditional computation. The model is not merely representing different inputs; it is allowing different inputs to activate different information paths through the same stored memory.
+\end{keyidea}
+
+This does not imply that attention weights are explanations. Week~6 still applies. The weights tell us how one part of the forward computation mixed values. Whether a large weight was causally important to the final prediction depends on the downstream computation and should be tested by intervention.
+
+\section{Self-attention: the sequence queries itself}
+
+So far we have allowed queries to come from one place and keys/values from another. \emph{Self-attention} uses one collection of representations to create all three:
+\[
+  \mat{Q}=\mat{X}\mat{W}_Q,\qquad
+  \mat{K}=\mat{X}\mat{W}_K,\qquad
+  \mat{V}=\mat{X}\mat{W}_V.
+\]
+Every sequence position therefore constructs a query and compares it with keys from the sequence.
+
+For a sentence with \(T\) token representations, the score matrix is \(T\times T\). Row \(i\) answers: when updating position \(i\), how much weight should be placed on the value at each position \(j\)?
+
+This changes the information path dramatically compared with recurrence. In an RNN, position 1 influences position 100 only through a chain of many state updates. In one self-attention layer, the query at position 100 can place weight directly on the key at position 1.
+
+The path length between distant positions is therefore short. That helps with long-range interaction and allows many positions to be processed in parallel during training. It does not make the computation free: forming a dense \(T\times T\) score matrix has quadratic cost in sequence length. Short information paths and computational cost are different questions.
+
+\subsection{Self-attention does not know order by itself}
+
+There is a subtlety. If we permute the rows of \(\mat{X}\), self-attention without positional information permutes its outputs in the corresponding way. The operation is sensitive to which token vectors are present and to their pairwise content relations, but it does not attach an intrinsic meaning to ``first'', ``third'' or ``earlier''.
+
+This is easiest to see with a task such as ``did A occur before B?'' If the same token vectors appear in two orders, content-only self-attention sees the same multiset of token identities. If we then mean-pool the outputs, the final representation can become invariant to that permutation.
+
+The solution is not that attention secretly needs recurrence. The solution is to make position part of the representation.
+
+\section{Position: where did this token occur?}
+
+A transformer normally combines token content with some representation of position. In the simplest learned form,
+\[
+  \vect{x}_t = \vect{e}_{\mathrm{token}(t)} + \vect{p}_t,
+\]
+where \(\vect{p}_t\) is a learned vector for position \(t\).
+
+Now swapping two tokens changes more than row order. Each token is combined with a different positional vector, so the projected queries and keys can learn relations involving location.
+
+Learned absolute positions are simple and effective, but they also expose a limitation: a position outside the learned table has no representation unless the model was designed for it. This is one reason positional generalisation should be treated empirically rather than assumed.
+
+The original transformer used sinusoidal positional encodings \parencite{vaswani2017}. Different frequencies encode position with deterministic sine and cosine functions. Modern systems also use relative position mechanisms that represent distances or offsets between positions rather than only absolute indices.
+
+The details vary, but the purpose is stable:
+\begin{center}
+  \emph{attention supplies content-dependent interaction; position supplies information about sequence structure.}
+\end{center}
+
+A positional signal does not itself encode the task. It does not contain the rule ``A before B.'' It gives the network enough information for learned projections and attention patterns to express such a rule.
+
+\begin{figure}[ht]
+  \figureaction{Create a two-part figure using the same four token embeddings in two different orders. Left: content-only self-attention followed by mean pooling, emphasising that a permutation simply permutes the internal rows and the pooled result cannot identify order. Right: add distinct positional vectors before attention, so swapping tokens changes the combined representations and therefore the attention score matrix.}
+  \caption{Self-attention provides direct interaction between positions but not an intrinsic ordering coordinate. Positional information makes order-dependent relations available to the learned attention computation.}
+  \label{fig:week9-position}
+\end{figure}
+
+\section{Multi-head attention: several interaction spaces}
+
+One attention head creates one set of learned query, key and value projections. There is no reason to require every useful relation to be expressed in the same matching coordinates.
+
+Multi-head attention creates several heads in parallel:
+\[
+  \mathrm{head}_h
+  = \mathrm{Attention}(\mat{Q}_h,\mat{K}_h,\mat{V}_h),
+\]
+with different learned projection matrices for each head. Their outputs are concatenated and projected again:
+\[
+  \mathrm{MHA}(\mat{X})
+  = \mathrm{Concat}(\mathrm{head}_1,\ldots,\mathrm{head}_H)\mat{W}_O.
+\]
+
+The useful intuition is not ``one head learns syntax and another learns meaning.'' Sometimes heads exhibit interpretable patterns; often they do not. The defensible claim is more general: multiple heads give the layer several learned subspaces in which different compatibility patterns can be represented simultaneously.
+
+One head might form a sharp local pattern while another distributes weight broadly. One may focus strongly on position; another may be more content-sensitive. But those descriptions are observations to test, not semantic roles guaranteed by the architecture.
+
+The output projection \(\mat{W}_O\) also matters. The heads do not vote independently on the final answer. Their retrieved information is mixed into one representation that later computations transform further.
+
+\begin{checkpointbox}
+A model uses eight attention heads. On one example, head 3 assigns 0.85 weight to a particular token. Which statement is justified?
+
+\begin{enumerate}[leftmargin=*]
+  \item ``Token 3 caused the prediction.''
+  \item ``Under head 3's learned query/key projections, that token contributed strongly to the value mixture for this query.''
+\end{enumerate}
+The second statement follows from the computation. The first needs an intervention on the token, value path or resulting representation.
+\end{checkpointbox}
+
+\section{Masks: attention is also an access-control mechanism}
+
+Attention can connect positions directly, but not every task should permit every connection.
+
+Consider autoregressive next-token prediction. To predict token \(x_{t+1}\), the model may use the prefix \(x_{\le t}\). It must not inspect \(x_{t+1}\) or later tokens. If it could, the evaluation would leak the answer.
+
+A \emph{causal mask} blocks those future interactions. In the attention score matrix, disallowed locations are assigned a very negative value before softmax, making their resulting weights effectively zero.
+
+For a sequence of length four, the permitted pattern is schematically
+\[
+\begin{pmatrix}
+1 & 0 & 0 & 0\\
+1 & 1 & 0 & 0\\
+1 & 1 & 1 & 0\\
+1 & 1 & 1 & 1
+\end{pmatrix},
+\]
+where row \(t\) may attend only to positions at or before \(t\).
+
+The mask is not decorative. It changes the function class by changing which information can participate in each representation.
+
+\subsection{Bidirectional attention answers a different question}
+
+For a masked-token objective, we may deliberately hide one token but allow the model to use visible context on both sides. The attention pattern can then be bidirectional.
+
+The same transformer-style block can therefore support two different learning problems:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{causal next-token prediction}: each position uses only the past and current prefix;
+  \item \textbf{masked-token prediction}: selected content is hidden, but the visible sequence on both sides may be used to reconstruct it.
+\end{itemize}
+
+These objectives are not interchangeable merely because both use self-attention. They define different information structures and different targets.
+
+This is a direct continuation of Week~1's task-definition lesson. Architecture does not determine the learning problem by itself. Data, objective and permitted information matter too.
+
+\section{The transformer block: route, transform, preserve}
+
+Attention alone is not the whole transformer. A standard block alternates information routing with per-position nonlinear transformation, while residual connections and normalisation stabilise the computation \parencite{vaswani2017}.
+
+At a high level, one block contains:
+\[
+\begin{aligned}
+  \text{input representations}
+  &\rightarrow \text{attention}
+   \rightarrow \text{residual + normalisation}\\
+  &\rightarrow \text{MLP}
+   \rightarrow \text{residual + normalisation}.
+\end{aligned}
+\]
+
+The attention sublayer mixes information \emph{across positions}. The feed-forward MLP acts independently on each position after that information has been routed. This separation is worth noticing. A transformer layer repeatedly performs two qualitatively different operations:
+\begin{enumerate}[leftmargin=*]
+  \item decide which other representations should contribute here;
+  \item nonlinearly transform the resulting local representation.
+\end{enumerate}
+
+Residual connections preserve a direct path from the input of a sublayer to its output. Week~5 introduced this idea in ResNets. The reason is similar here: the layer can learn a modification to an existing representation rather than reconstructing everything from scratch, and gradients have short identity routes through depth.
+
+Layer normalisation controls representation scale within each token vector. Transformer implementations differ in whether normalisation occurs before or after each sublayer, but the conceptual role remains tied to stable deep optimisation rather than to attention semantics.
+
+\begin{pytorchbox}{one small self-attention block}
+attn_out, weights = mha(x, x, x,
+                        attn_mask=mask,
+                        need_weights=True)
+x = norm1(x + attn_out)
+
+mlp_out = mlp(x)
+x = norm2(x + mlp_out)
+\end{pytorchbox}
+
+The three arguments \texttt{x, x, x} indicate self-attention: queries, keys and values come from the same sequence. Later, replacing the second and third arguments with a separate memory will give cross-attention.
+
+\section{Three common transformer arrangements}
+
+The transformer block is a building material rather than one complete model. Different information-access rules produce different system patterns.
+
+\subsection{Encoder-style models}
+
+An encoder-style transformer typically uses bidirectional self-attention over the observed sequence. Every token representation may incorporate context from both directions. This is natural for tasks such as classification, retrieval or masked-token representation learning, where the whole input is available before an output is required.
+
+BERT is the canonical example of this pattern, trained primarily with masked-token prediction so that internal representations learn to use surrounding context.
+
+\subsection{Decoder-style models}
+
+A decoder-style autoregressive transformer uses causal self-attention. During training, many next-token predictions can be computed in parallel because the full target sequence is known and the causal mask prevents illegal future access. During free generation, however, output tokens still arrive sequentially because token \(t+1\) depends on the realised prefix through \(t\).
+
+This distinction is important: transformers parallelise \emph{training-time sequence computation} far better than recurrent networks, but autoregressive sampling itself remains sequential across generated positions.
+
+\subsection{Encoder--decoder models}
+
+An encoder--decoder transformer separates source representation from target generation. The encoder builds contextual representations of the source. The decoder uses causal self-attention over the generated target prefix and \emph{cross-attention} over the encoded source.
+
+This extends the sequence-to-sequence pattern introduced in Week~7. Instead of compressing the whole source into one final recurrent state, each decoder step can construct a query and retrieve a different combination of source representations \parencite{bahdanau2015,sutskever2014}.
+
+The architecture is therefore easier to understand as information routes:
+\begin{itemize}[leftmargin=*]
+  \item self-attention routes within one set of representations;
+  \item causal masking restricts which directions through time are legal;
+  \item cross-attention routes from one representation set into another.
+\end{itemize}
+
+\section{Self-supervision: the data can manufacture the target}
+
+Large transformer models are often pretrained without manually assigned class labels. This does not mean there is no objective. It means the training target is derived from the observations themselves.
+
+Week~7 already encountered one example: next-token prediction. The sequence supplies many training pairs,
+\[
+  x_{\le t} \longrightarrow x_{t+1}.
+\]
+The model learns from the ordering structure already present in the text.
+
+Masked-token prediction creates another target by hiding part of the input and asking the model to reconstruct it. Denoising objectives generalise the same logic: corrupt an observation in a known way, then train a model to recover missing or damaged structure.
+
+These are called \emph{self-supervised} objectives because the supervision is constructed from the data rather than appended as a separate human label.
+
+The phrase is useful only if we remember that the choice of corruption or prediction target is still a strong specification. Next-token prediction rewards information useful for forecasting continuations. Masked-token prediction rewards information useful for reconstructing hidden content from bidirectional context. Contrastive learning rewards discrimination among matched and mismatched pairs. The objective shapes the representation.
+
+\section{Contrastive learning and aligned spaces}
+
+Week~8 introduced CLIP as a model that aligns image and text representations. We can now inspect the training principle more directly.
+
+Suppose a batch contains paired observations
+\[
+  (I_1,T_1),\ldots,(I_B,T_B).
+\]
+An image encoder and text encoder produce vectors, often followed by learned projection heads and L2 normalisation. This gives a similarity matrix
+\[
+  S_{ij}=\frac{\vect{v}^{\mathsf T}_i\vect{t}_j}{\tau},
+\]
+where \(\tau\) is a temperature parameter.
+
+The diagonal entries \(S_{ii}\) correspond to matched pairs. Off-diagonal entries provide mismatched alternatives from the batch. A symmetric CLIP/InfoNCE-style objective asks each image to identify its matching text and each text to identify its matching image \parencite{radford2021clip}.
+
+One direction can be written
+\begin{equation}
+  \loss_{I\rightarrow T}
+  = -\frac{1}{B}\sum_{i=1}^{B}
+    \log\frac{e^{S_{ii}}}{\sum_j e^{S_{ij}}}.
+\end{equation}
+The reverse direction swaps rows and columns, and the two losses are averaged.
+
+The other examples in the batch therefore act as \emph{negatives}. They are not necessarily semantically unrelated in an absolute sense; they are simply not the paired target for this training instance. Larger and more varied negative sets make the discrimination problem harder and can provide richer alignment pressure.
+
+\begin{keyidea}
+Contrastive alignment and attention solve different problems. Contrastive learning makes two representations comparable in a shared geometry. Attention uses a query to route information among representations inside a particular computation.
+\end{keyidea}
+
+This distinction matters in multimodal systems. An image and sentence may be close in a CLIP-like embedding space without the sentence dynamically selecting which image region or which remembered frame should influence a later prediction.
+
+\begin{optionalexercise}[title={Optional mathematics --- one row of InfoNCE}]
+Suppose one image has similarities \([4.0,1.5,0.5,-1.0]\) to four candidate texts and the first text is the correct pair.
+
+\begin{enumerate}[leftmargin=*]
+  \item Apply a softmax to the four similarities and compute the probability assigned to the correct text.
+  \item Recompute after dividing all similarities by temperature \(\tau=0.5\).
+  \item Recompute after changing one negative similarity from \(1.5\) to \(3.8\).
+\end{enumerate}
+Explain how temperature and hard negatives change the learning signal even though the identity of the positive pair is unchanged.
+\end{optionalexercise}
+
+\section{Cross-attention: one representation queries another}
+
+Self-attention uses one set of representations for queries, keys and values. Cross-attention separates them.
+
+Let \(\mat{X}\) be a set of query-side representations and \(\mat{M}\) a memory from another sequence or modality. Then
+\[
+  \mat{Q}=\mat{X}\mat{W}_Q,
+  \qquad
+  \mat{K}=\mat{M}\mat{W}_K,
+  \qquad
+  \mat{V}=\mat{M}\mat{W}_V.
+\]
+The output has one routed memory vector per query in \(\mat{X}\).
+
+This gives the phrase \emph{conditioning} a richer meaning. Instead of compressing a condition into one fixed vector and presenting the same vector everywhere, each query can ask for a different part of the condition.
+
+In translation, each generated target token can attend to different source positions. In image captioning, a word-generation state can query visual features. In multimodal reasoning, text can query a collection of image or region representations. In retrieval-augmented systems, a current representation can query an external memory of documents or examples.
+
+The mechanism is always recognisable: the query determines the information need; the memory supplies keys and values.
+
+\subsection{Early fusion and routed fusion}
+
+A simple multimodal system can concatenate image and text vectors:
+\[
+  \vect{h}=f([\vect{v}_{\mathrm{image}};\vect{v}_{\mathrm{text}}]).
+\]
+This is often called early fusion. It can work well, especially when each modality is already represented by one useful summary.
+
+But concatenation does not itself choose among several pieces of memory. If four visual frames have been mean-pooled into one vector before the text arrives, their identities have already been blended.
+
+Cross-attention keeps the visual items distinct long enough for the text-derived query to select among them. That is the important representational difference:
+\[
+  \text{pool then fuse}
+  \quad\text{versus}\quad
+  \text{query then pool conditionally}.
+\]
+
+Neither is universally superior. Attention costs more and can learn useless routing patterns. If all memory elements should contribute equally, a simple pooling rule may be sufficient. The value of cross-attention appears when relevance genuinely depends on the query.
+
+\begin{figure}[ht]
+  \figureaction{Create a three-panel multimodal diagram. Panel 1: shared-space alignment, with image and text vectors mapped near one another but no internal routing. Panel 2: early fusion, where four visual vectors are pooled first and concatenated with one text vector. Panel 3: cross-attention, where a text-derived query scores four separate visual keys and retrieves a weighted visual value mixture. Emphasise that alignment, fusion and routing are distinct operations.}
+  \caption{Multimodal systems can combine representations in different ways. Shared-space alignment makes modalities comparable; early fusion combines summaries; cross-attention allows one modality to route information selectively from another.}
+  \label{fig:week9-multimodal-routing}
+\end{figure}
+
+\section{Application to the architecture: when a weight is only a prior}
+
+\begin{architecturebox}
+The StoryReasoning system provides a useful sequence of attention failures and repairs because the task contains four input frames whose relevance changes from one story window to another.
+
+An early selector used attention weights over the four input positions. The weights looked structured, but the structure was mostly a \emph{positional prior}: frame~3 tended to receive high weight. On near-copy windows, the selector identified the actually closest input only about \(29\%\) of the time, scarcely above the \(25\%\) four-way chance level. The architecture contained attention, but the learned routing was not yet strongly content-dependent.
+
+Making the query depend on the sequence state and explicitly supervising the selected frame improved selection. Yet coupling that selector too tightly to the shared GRU state damaged text retrieval badly. A mechanism that helped one route changed the representation another head depended on.
+
+The later architecture therefore separates roles more carefully. Frame-selection evidence can be computed from visual latent relationships without forcing the shared sequence state to carry every selection objective. Separately, the text decoder uses cross-attention over a memory containing input-description vectors and character-name information, so different generated words can retrieve different conditioning evidence.
+
+Week~9 supplies the language for these observations. A fixed or weakly content-dependent query can learn a useful average preference without solving per-example routing. Attention weights are inspectable but need behavioural tests. Cross-attention is most valuable when different queries genuinely need different parts of memory. And information-routing components can interfere with the representation that creates their queries, so architecture should be judged by the whole system rather than by one attractive attention map.
+\end{architecturebox}
+
+The same diagnostics used in the practical remain appropriate: shuffle the text condition, replace it with zeros, swap queries while holding visual memory fixed, or blank one memory item at a time. If the prediction does not change, the routing may be decorative even if the weights look interesting.
+
+\section{Retrieval is another form of routing}
+
+Attention performs differentiable retrieval over a set of internal values. External retrieval applies a similar idea at a larger boundary: compare a query representation with a database of candidate representations, select or rank relevant items, and pass the retrieved information to a later computation.
+
+A nearest-neighbour system may use cosine similarity rather than a learned softmax over a short memory, but the conceptual questions are familiar:
+\begin{itemize}[leftmargin=*]
+  \item what representation forms the query?
+  \item what representation forms the keys?
+  \item what information is returned as the value?
+  \item how large is the candidate set?
+  \item what baseline establishes whether retrieval is meaningful?
+  \item does retrieval change when the query condition is shuffled?
+\end{itemize}
+
+This is why contrastive representations, attention and retrieval fit naturally in the same week. They are not the same mechanism, but all concern the geometry and routing of information.
+
+Retrieval also provides a useful alternative to generation. If the required output must be one existing frame, passage, product or document, retrieving a real item can be more appropriate than generating a new one. If the task needs novel composition, generation may be necessary. Many modern systems combine the two.
+
+Week~11 will revisit this idea when external memory and learning during inference become central.
+
+\section{What attention does not solve}
+
+Attention is powerful enough that it is easy to assign it responsibilities it does not have.
+
+First, attention does not create information that is absent from the input. If four story frames do not determine one unique future, better routing can use the observed evidence more effectively but cannot eliminate genuine uncertainty. Week~8's distributional lesson remains necessary.
+
+Second, attention does not guarantee that the intended condition is used. A decoder with cross-attention can still rely on easier signals. Shuffled-condition controls remain essential.
+
+Third, attention does not automatically understand order. Positional information must make order available, and the trained model must learn to use it.
+
+Fourth, attention weights are not automatically explanations. They describe one mixing operation inside a larger nonlinear system.
+
+Fifth, shorter information paths do not imply cheap computation. Dense self-attention compares every query with every key, which becomes expensive as sequences grow.
+
+Finally, a transformer does not erase the rest of deep learning. It still depends on representations, losses, gradients, regularisation, optimisation, generalisation and evaluation. Attention changes the architecture of information flow; it does not suspend the principles developed in earlier weeks.
+
+\begin{checkpointbox}
+A multimodal transformer obtains excellent validation retrieval. When the text condition is shuffled across examples, retrieval barely changes. Attention maps over the visual tokens look sharp and different across examples.
+
+Which conclusion is best supported?
+
+\begin{enumerate}[leftmargin=*]
+  \item The model has learned sophisticated text-controlled visual reasoning because the maps are sharp.
+  \item The evidence does not show that text materially affects retrieval; the sharp maps may reflect visual or positional routing that is largely independent of the text condition.
+\end{enumerate}
+The second conclusion follows from the intervention. The architecture permits cross-modal routing, but the behaviour has not demonstrated dependence on the text.
+\end{checkpointbox}
+
+\section{What to carry into Week 10}
+
+The deepest change this week is not that recurrent networks have been replaced by transformers. It is that computation has become explicitly \emph{conditional on relationships among representations}.
+
+The main ideas can be read as one chain:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{queries, keys and values} separate information need, matching coordinates and retrieved content;
+  \item \textbf{scaled dot-product attention} turns compatibility into differentiable routing;
+  \item \textbf{self-attention} lets positions retrieve directly from one another;
+  \item \textbf{positional information} makes order-dependent relations available to attention;
+  \item \textbf{multi-head attention} supplies several learned interaction subspaces;
+  \item \textbf{masks} determine which information paths are legal;
+  \item \textbf{transformer blocks} alternate routing across positions with nonlinear transformation within positions;
+  \item \textbf{self-supervised objectives} create learning signals from the structure of the observations themselves;
+  \item \textbf{contrastive learning} organises representations so matched observations become retrievable across modalities;
+  \item \textbf{cross-attention} lets one sequence or modality retrieve selectively from another;
+  \item \textbf{retrieval} extends the same represent--compare--select logic to external candidate sets.
+\end{itemize}
+
+The learning thread now moves from \emph{memory} to \emph{information routing}. A recurrent state asks what should survive through time. Attention asks what should be retrieved for this particular computation.
+
+That shift creates a final question. Once large networks repeatedly route, combine and transform representations, what geometry do those representations acquire? Are concepts stored in individual coordinates, distributed directions or overlapping subspaces? Can many features share the same representational capacity? Can a model appear behaviourally saturated while its internal geometry is still changing?
+
+Week~10 turns from information flow to the geometry and scale of the representations flowing through it.
