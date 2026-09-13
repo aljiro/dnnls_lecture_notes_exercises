@@ -1,2 +1,506 @@
-\chapter{Building Blocks: Linear Projections}
+\chapter{Regression, loss and gradient descent}
 \label{chap:week02}
+
+In Week~1 we described a learning system from the outside. There were examples, a model, a target, a loss and a procedure for changing parameters. We can now open that box and watch the mechanism move.
+
+We shall begin with the least mysterious useful model: a straight line. This is deliberate. If the model has only two adjustable numbers, then nearly every quantity involved in learning can be drawn. We can see what a parameter does, what an error means, where the loss comes from, which direction improves it, and why an update that is locally sensible can still fail if its step is badly chosen. Nothing essential is hidden by depth, non-linearity or millions of parameters.
+
+The point of linear regression is therefore larger than fitting lines. It gives us the first complete differentiable learning system. Later networks will contain far more elaborate transformations, but the central loop will remain recognisable:
+\[
+\text{input} \longrightarrow \text{prediction} \longrightarrow \text{loss}
+\longrightarrow \text{gradient} \longrightarrow \text{parameter update}.
+\]
+
+\begin{keyidea}
+A model does not improve because it has been told the correct parameters. It improves because the loss changes when its parameters change, and the gradient tells us how sensitive that loss is to small parameter changes.
+\end{keyidea}
+
+\section{The simplest adjustable prediction}
+
+Suppose an input is a single number \(x\), and the quantity we wish to predict is a number \(y\). We choose the model
+\begin{equation}
+  \hat y = wx+b,
+  \label{eq:week2-line}
+\end{equation}
+where \(w\) and \(b\) are adjustable parameters.
+
+This model is almost embarrassingly simple, which is why it is so useful. The parameter \(w\) changes how strongly the prediction responds to the input. In a graph of \(x\) against \(\hat y\), it changes the slope. The parameter \(b\) changes the prediction even when \(x=0\); geometrically, it translates the line vertically.
+
+If \(w=0\), the input has no effect at all:
+\[
+  \hat y = b.
+\]
+The model has become a constant predictor. That apparently trivial limiting case will matter repeatedly. A learner can reduce its loss substantially by learning a useful constant while learning almost nothing about the relationship between input and target.
+
+\subsection{Predictions are not targets}
+
+For one observed pair \((x_i,y_i)\), the model produces
+\[
+  \hat y_i = wx_i+b.
+\]
+The difference between the observed target and the prediction is the \emph{residual}. We shall use
+\begin{equation}
+  r_i = y_i-\hat y_i.
+  \label{eq:week2-residual}
+\end{equation}
+A positive residual says that the model predicted too low; a negative residual says that it predicted too high. On a scatter plot, the residual can be drawn as the vertical displacement from the prediction line to the observed point.
+
+A residual is not yet a training objective. A dataset gives us many residuals, some positive and some negative. Simply adding them is a bad idea because errors in opposite directions can cancel. We need a rule for combining them into a scalar quantity whose value reflects the kinds of mistakes we care about.
+
+\begin{figure}[ht]
+  \figureaction{Draw a small 2D regression dataset with a deliberately poor straight prediction line. Mark the slope parameter $w$ and intercept $b$. For four points, draw vertical residual segments to the line; make two residuals positive and two negative. Add a small inset showing how increasing $w$ rotates the line while increasing $b$ translates it upward.}
+  \caption{A linear model has only two parameters, so its behaviour is easy to inspect. Residuals describe individual prediction errors; a loss will combine these errors into one objective.}
+  \label{fig:week2-line-residuals}
+\end{figure}
+
+\begin{pytorchbox}{a scalar linear model}
+import torch
+from torch import nn
+
+model = nn.Linear(in_features=1, out_features=1)
+
+# For a batch X with shape [batch, 1]:
+y_hat = model(X)          # y_hat = X @ W.T + b
+
+# The two learned objects are the weight and bias:
+print(model.weight.shape) # [1, 1]
+print(model.bias.shape)   # [1]
+\end{pytorchbox}
+
+PyTorch stores the weight in a matrix even when there is only one input and one output. This is a clue about where we are heading: the scalar line is one member of a family of linear transformations.
+
+\section{From a line to a linear layer}
+
+Real examples usually contain more than one measured quantity. Suppose an example is represented by \(d\) features,
+\[
+  \vect{x} = (x_1,x_2,\ldots,x_d)^\top.
+\]
+A scalar linear prediction is a weighted sum
+\begin{equation}
+  \hat y = w_1x_1+w_2x_2+\cdots+w_dx_d+b.
+\end{equation}
+Using vector notation,
+\begin{equation}
+  \hat y = \vect{w}^{\top}\vect{x}+b.
+  \label{eq:week2-dot}
+\end{equation}
+The dot product therefore has a very concrete interpretation: every feature contributes to the prediction in proportion to a learned weight.
+
+If \(w_j\) is large and positive, increasing feature \(x_j\) tends to raise the prediction. If it is large and negative, increasing the feature tends to lower it. If it is near zero, the model is comparatively insensitive to that feature, at least within this linear description.
+
+\subsection{Several outputs at once}
+
+Now suppose the model produces \(m\) numerical outputs. We could write \(m\) separate weighted sums, but matrix notation says the same thing compactly:
+\begin{equation}
+  \hat{\vect{y}} = \mat{W}\vect{x}+\vect{b},
+  \label{eq:week2-linear-map}
+\end{equation}
+where
+\[
+  \mat{W}\in\R^{m\times d}, \qquad
+  \vect{b}\in\R^m, \qquad
+  \hat{\vect{y}}\in\R^m.
+\]
+Each row of \(\mat{W}\) contains the weights for one output. Matrix multiplication is not introduced here merely to shorten notation. It is the basic operation by which neural networks mix coordinates into new coordinates.
+
+A linear map can stretch some directions, shrink others, rotate or reflect coordinate systems, combine several measurements, or discard information by projecting a high-dimensional vector into fewer dimensions. These geometric interpretations become increasingly important once hidden layers begin to construct internal representations.
+
+There is one small terminological subtlety. Mathematically, \(\mat{W}\vect{x}\) is a \emph{linear} map, whereas \(\mat{W}\vect{x}+\vect{b}\) is more precisely an \emph{affine} map because of the translation \(\vect{b}\). In machine-learning practice, `Linear` layer usually refers to the affine form including a bias. We shall follow that convention unless the distinction matters.
+
+\subsection{A batch is one larger matrix multiplication}
+
+If a batch contains \(B\) examples and we store them as rows of a matrix
+\[
+  \mat{X}\in\R^{B\times d},
+\]
+then all predictions can be computed together:
+\begin{equation}
+  \hat{\mat{Y}} = \mat{X}\mat{W}^{\top}+\vect{b}.
+  \label{eq:week2-batch-matmul}
+\end{equation}
+The bias is added to every row. This is one reason matrix multiplication is so central to deep learning: modern hardware can execute a large collection of weighted sums extremely efficiently as one tensor operation.
+
+\begin{checkpointbox}
+A model has 5 input features and 3 numerical outputs. What are the shapes of \(\vect{x}\), \(\mat{W}\), \(\vect{b}\) and \(\hat{\vect{y}}\)? If a batch contains 64 examples, what is the shape of \(\mat{X}\) and of the batch of predictions?
+\end{checkpointbox}
+
+\section{The loss is a specification of error}
+
+The model produces predictions. Training requires one more ingredient: a scalar objective that says which predictions are preferable.
+
+For regression, two common choices are mean squared error (MSE),
+\begin{equation}
+  \loss_{\mathrm{MSE}}
+  = \frac{1}{n}\sum_{i=1}^{n}(y_i-\hat y_i)^2,
+  \label{eq:week2-mse}
+\end{equation}
+and mean absolute error (MAE), also called L1 error,
+\begin{equation}
+  \loss_{\mathrm{L1}}
+  = \frac{1}{n}\sum_{i=1}^{n}|y_i-\hat y_i|.
+  \label{eq:week2-l1}
+\end{equation}
+Both are sensible ways to penalise wrong numerical predictions. They do not, however, express the same preference.
+
+Squaring makes large residuals disproportionately expensive. An error of size 4 contributes sixteen times as much squared error as an error of size 1. Under L1 the same errors contribute in the ratio four to one. MSE therefore reacts strongly to extreme errors; L1 is less sensitive to their magnitude.
+
+This difference is not an implementation detail. It changes the answer that is optimal.
+
+\subsection{What if the model is forced to predict a constant?}
+
+Imagine that the model receives no useful input and must predict the same scalar \(c\) for every target. Under MSE it chooses
+\[
+  c = \frac{1}{n}\sum_i y_i,
+\]
+the sample mean. Under L1, any sample median is an optimum.
+
+This is a remarkably useful fact because it reveals what each loss is asking the model to do. MSE says, in effect, ``place the prediction at the centre that minimises squared distance.'' L1 says ``place it at a centre that minimises absolute distance.'' Different notions of distance imply different notions of the best central answer.
+
+The Week~2 practical makes this visible first with scalar targets and then with images. That experiment is worth remembering because the same mathematics survives when the model becomes very complicated. If the inputs do not tell the network which of several possible targets will occur, the loss still pulls the output toward whatever summary minimises the expected penalty.
+
+\begin{architecturebox}
+The running StoryReasoning system predicts a fifth movie frame from four preceding frame--description pairs. Roughly \(85\%\) of the five-frame windows contain a shot cut. On those windows, the exact target pixels are not determined by the preceding images.
+
+A pixelwise L1 objective nevertheless demands one deterministic image. Its safest solution is therefore drawn toward a per-pixel median of plausible futures. In the repository, a constant median image obtains an overall L1 of about \(0.151\), while simply copying the last real frame scores about \(0.170\). On shot cuts, a visually real frame can lose to the bland constant.
+
+Nothing has gone wrong with optimisation. The optimiser is following the objective faithfully. The deeper problem is that the objective rewards a statistical summary when we wanted a plausible future. This is the Week~2 principle in its most consequential form: \emph{loss is specification, not merely measurement}.
+\end{architecturebox}
+
+\subsection{Training objective and evaluation metric need not be identical}
+
+A model is often trained with one quantity and judged with several others. We may optimise MSE but report MAE as well. A retrieval model may train with a contrastive loss but be evaluated using top-10 retrieval accuracy. A classifier may train with cross-entropy but be judged by accuracy, recall, calibration and cost-sensitive measures.
+
+This is legitimate, but it requires discipline. The training loss determines the local signal that changes the parameters. An evaluation metric tells us whether the resulting behaviour serves our purpose. If the two disagree, improving the training loss may not improve the quantity we actually care about.
+
+A useful question is therefore not simply
+\begin{quote}
+``Which loss is standard for this model?''
+\end{quote}
+but rather
+\begin{quote}
+``What behaviour becomes optimal under this loss, given the uncertainty in the target?''
+\end{quote}
+
+That question will return when we study classification, autoencoders, language modelling and probabilistic generation.
+
+\begin{optionalexercise}[title={Optional mathematics --- why MSE chooses the mean}]
+Suppose a constant predictor outputs \(c\) for targets \(y_1,\ldots,y_n\). Its squared-error objective is
+\[
+  \loss(c)=\frac{1}{n}\sum_{i=1}^{n}(y_i-c)^2.
+\]
+Differentiate with respect to \(c\), set the derivative to zero, and show that
+\[
+  c=\frac{1}{n}\sum_i y_i.
+\]
+Then sketch why the L1 objective changes slope whenever \(c\) crosses an observed target and is minimised at a median. You do not need a formal proof of the L1 result; a sorted list of five targets is enough to see the mechanism.
+\end{optionalexercise}
+
+\section{A derivative is local sensitivity}
+
+We now have parameters and a loss. The next question is mechanical: if the loss is too large, which way should a parameter move?
+
+Let \(\loss(w)\) denote the loss when all parameters except \(w\) are held fixed. The derivative
+\[
+  \frac{d\loss}{dw}
+\]
+measures local sensitivity: how much the loss changes for a very small change in \(w\).
+
+If the derivative is positive, increasing \(w\) slightly tends to increase the loss, so decreasing \(w\) is locally promising. If the derivative is negative, increasing \(w\) tends to reduce the loss. If it is close to zero, the loss is locally insensitive to small changes in that parameter.
+
+The derivative does not reveal the entire landscape. It is a local measurement, rather like standing on a hillside and measuring the slope beneath one foot. Yet local information is enough to construct an iterative procedure: measure the slope, move downhill a little, measure again.
+
+\subsection{Finite differences: a slope without symbolic calculus}
+
+Before differentiating an equation, we can estimate a derivative experimentally. Choose a small \(\epsilon\) and compare the loss on either side of the current value:
+\begin{equation}
+  \frac{d\loss}{dw}
+  \approx
+  \frac{\loss(w+\epsilon)-\loss(w-\epsilon)}{2\epsilon}.
+  \label{eq:week2-finite-diff}
+\end{equation}
+This centred finite difference is not how large neural networks are normally trained, but it is conceptually valuable. It shows that a derivative is not an abstract symbol inserted by convention. It summarises an observable fact: perturbing the parameter in one direction changes the loss differently from perturbing it in the other.
+
+Finite differences also provide a useful debugging tool. For a small model, an analytically or automatically computed gradient can be compared with a numerical finite-difference estimate. If they disagree badly, one of the computations is probably wrong.
+
+\subsection{Many parameters give a gradient}
+
+Our line has two parameters, so the loss is a function \(\loss(w,b)\). We collect the two partial derivatives into a vector:
+\begin{equation}
+  \nabla\loss
+  =
+  \begin{bmatrix}
+    \frac{\partial \loss}{\partial w} \\
+    \frac{\partial \loss}{\partial b}
+  \end{bmatrix}.
+  \label{eq:week2-gradient}
+\end{equation}
+This vector is the \emph{gradient}. It points in the direction of steepest local increase of the loss. The opposite vector, \(-\nabla\loss\), points in the direction of steepest local decrease.
+
+For a network with millions or billions of parameters the same definition applies. The gradient is simply much longer. Each component asks: if this parameter were nudged while the others were momentarily fixed, how would the loss respond?
+
+\begin{figure}[ht]
+  \figureaction{Draw a contour map of MSE over parameters $(w,b)$ for a simple linear-regression problem. Mark a poor starting point, show the gradient arrow pointing uphill, and a sequence of gradient-descent steps moving approximately perpendicular to contour lines toward the minimum. Include three trajectories for small, sensible and excessive learning rates; make the excessive one overshoot or diverge.}
+  \caption{Training as motion in parameter space. The gradient describes local uphill sensitivity; gradient descent moves in the opposite direction. The learning rate determines how far each update travels.}
+  \label{fig:week2-loss-surface}
+\end{figure}
+
+\begin{checkpointbox}
+At some point in training, \(\partial\loss/\partial w=-3\) and \(\partial\loss/\partial b=0.5\). Without calculating a new loss, what local change in \(w\) and \(b\) would gradient descent favour? Which parameter currently has the larger magnitude of local sensitivity?
+\end{checkpointbox}
+
+\section{Gradient descent: turning sensitivity into an update}
+
+The simplest gradient-descent update is
+\begin{equation}
+  \vect{\theta}_{t+1}
+  =
+  \vect{\theta}_t - \eta\,\nabla_{\vect{\theta}}\loss,
+  \label{eq:week2-gd}
+\end{equation}
+where \(\vect{\theta}\) denotes all model parameters and \(\eta>0\) is the \emph{learning rate}.
+
+For our two-parameter line this means
+\begin{align}
+  w_{t+1} &= w_t - \eta\frac{\partial\loss}{\partial w},\\
+  b_{t+1} &= b_t - \eta\frac{\partial\loss}{\partial b}.
+\end{align}
+The gradient chooses a direction; the learning rate chooses a step size.
+
+This separation matters. A perfectly correct gradient does not guarantee successful training. If \(\eta\) is extremely small, the learner moves in sensible directions but makes painfully little progress. If \(\eta\) is too large, each update can leap across a low-loss region and land higher on the other side. Repeated overshooting may cause oscillation or divergence.
+
+\subsection{Why training is iterative}
+
+One might ask why, having found the downhill direction, we do not simply continue in a straight line until reaching the minimum. The answer is that the gradient itself changes as the parameters move. A direction that is downhill at the current point need not remain downhill far away.
+
+Gradient descent therefore alternates measurement and intervention:
+\begin{enumerate}[leftmargin=*]
+  \item compute predictions using the current parameters;
+  \item compute a loss;
+  \item compute the gradient of that loss at the current parameters;
+  \item update the parameters;
+  \item repeat from the new position.
+\end{enumerate}
+Learning is a trajectory, not one calculation.
+
+This distinction will become more important in neural networks. Two models can begin from different random parameters, see examples in a different order, or use different learning rates and end at different solutions even when their architecture and training data are identical.
+
+\subsection{The gradient of MSE for a line}
+
+For the model \(\hat y_i=wx_i+b\), define the prediction error
+\[
+  e_i = \hat y_i-y_i.
+\]
+Then
+\[
+  \loss=\frac{1}{n}\sum_i e_i^2.
+\]
+The derivatives are
+\begin{align}
+  \frac{\partial\loss}{\partial w}
+  &=\frac{2}{n}\sum_i e_i x_i,\\
+  \frac{\partial\loss}{\partial b}
+  &=\frac{2}{n}\sum_i e_i.
+  \label{eq:week2-line-gradients}
+\end{align}
+These formulas are worth reading rather than merely accepting. The bias gradient is proportional to the average signed prediction error. If predictions are systematically too high, the update tends to lower the bias; if systematically too low, it tends to raise it.
+
+The weight gradient also multiplies each error by \(x_i\). An error observed at a positive input pushes the slope differently from the same error observed at a negative input. The gradient therefore combines \emph{what went wrong} with \emph{where in the input space it went wrong}.
+
+A neural network will use the same principle at a vastly larger scale. Backpropagation, introduced later, is an efficient method for obtaining these sensitivities through compositions of many operations.
+
+\begin{optionalexercise}[title={Optional derivation --- the two gradients}]
+Starting from
+\[
+\loss(w,b)=\frac{1}{n}\sum_i(wx_i+b-y_i)^2,
+\]
+use the chain rule to derive \cref{eq:week2-line-gradients}. Then evaluate both derivatives for the three points
+\[
+(0,1),\quad (1,3),\quad (2,5)
+\]
+when \(w=0\) and \(b=0\). Before applying an update, predict whether both parameters should increase or decrease.
+\end{optionalexercise}
+
+\section{The practical meaning of a training loop}
+
+The equations can make training look more ceremonial than it is. A training loop is simply the repeated execution of the mechanism we have assembled.
+
+For a batch of examples:
+\[
+\boxed{
+\text{forward prediction}
+\rightarrow
+\text{loss}
+\rightarrow
+\text{gradients}
+\rightarrow
+\text{update}
+}
+\]
+Then the process begins again with the updated parameters.
+
+The term \emph{forward pass} refers to the computations from inputs to predictions, and usually onward to the loss. In our line, the forward pass is just \(wx+b\). In a deep network it may involve hundreds of tensor operations. The logic is the same.
+
+\begin{pytorchbox}{one regression training step}
+model = nn.Linear(4, 1)
+loss_fn = nn.MSELoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+
+optimizer.zero_grad()      # discard gradients from the previous step
+y_hat = model(X_batch)     # forward pass
+loss = loss_fn(y_hat, y_batch)
+loss.backward()            # ask autograd for parameter gradients
+optimizer.step()           # theta <- theta - lr * gradient
+\end{pytorchbox}
+
+This is already recognisably the code used to train much larger networks. Two details deserve restraint at this stage. First, `loss.backward()` does not mean that we have introduced a new learning rule; it asks PyTorch to compute the same derivatives represented by \(\nabla\loss\). How those derivatives are propagated efficiently through a multilayer computation is the subject of backpropagation in Weeks~3--4. Second, `optimizer.step()` hides the parameter-update arithmetic, not the conceptual mechanism. For plain SGD it implements \cref{eq:week2-gd}.
+
+\section{Why not use the entire dataset for every update?}
+
+So far the loss and gradient have been written as averages over all \(n\) training examples. This is \emph{full-batch gradient descent}. If the dataset is small, that is perfectly reasonable. If it contains millions of examples and the model is expensive, recomputing the exact full-dataset gradient before every parameter update becomes wasteful.
+
+The alternative is to estimate the gradient using only part of the training set.
+
+\subsection{Stochastic and mini-batch gradients}
+
+At one extreme, \emph{stochastic gradient descent} may use a single randomly chosen example for an update. More commonly in deep learning, a \emph{mini-batch} of \(B\) examples is used:
+\begin{equation}
+  \hat{\nabla}\loss_B
+  = \frac{1}{B}\sum_{i\in\mathcal{B}} \nabla \ell_i,
+  \label{eq:week2-minibatch-gradient}
+\end{equation}
+where \(\ell_i\) is the loss contribution from one example and \(\mathcal{B}\) is the selected batch.
+
+The hat is useful conceptually: the mini-batch gradient is an estimate of the gradient we would obtain from the whole training set. Different batches contain different examples, so their estimates are not identical.
+
+A one-example gradient can be very noisy. One unusual example may point in a direction quite different from the full-data gradient. Averaging over more examples reduces that variation. Thus batch size controls a statistical trade-off:
+
+\begin{itemize}[leftmargin=*]
+  \item small batches give cheap but noisy gradient estimates and many updates per pass through the data;
+  \item large batches give more stable estimates but cost more per update and produce fewer updates per pass;
+  \item the full batch gives the exact gradient of the empirical training loss but may be unnecessarily expensive.
+\end{itemize}
+
+Noise is therefore not evidence that SGD is malfunctioning. It is the expected consequence of estimating a population-of-training-examples quantity from a sample of those examples. Week~1's sampling idea has reappeared inside the optimiser.
+
+\begin{figure}[ht]
+  \figureaction{Make a two-part figure. Left: in a $(\partial L/\partial w,\partial L/\partial b)$ plane, plot a fixed full-dataset gradient and clouds of gradient estimates from batch size 1, a medium mini-batch, and a large mini-batch; smaller batches should have visibly larger spread. Right: show three parameter trajectories toward the same low-loss region, with full-batch smooth, mini-batch moderately noisy, and single-example SGD jagged.}
+  \caption{Mini-batch gradients are noisy estimates of the full-data gradient. Larger batches reduce variation, but a noisy trajectory can still make useful progress.}
+  \label{fig:week2-gradient-noise}
+\end{figure}
+
+\subsection{Batch, update and epoch are different counters}
+
+These terms are easy to blur together.
+
+A \emph{batch} is the set of examples used to compute one gradient estimate. An \emph{update} is one parameter change. An \emph{epoch} is one pass through the training dataset.
+
+If a dataset contains \(N=10{,}000\) examples and the batch size is \(B=100\), then one epoch contains approximately
+\[
+  \frac{N}{B}=100
+\]
+updates. With \(B=10\), the same epoch contains about 1000 updates. Both runs have seen approximately the same number of examples during the epoch, but they have changed their parameters a very different number of times.
+
+This is why statements such as ``model A learned faster because it converged in fewer epochs'' can be misleading when batch sizes differ. Computational work, examples processed and parameter updates are related quantities, but they are not identical.
+
+\subsection{Why shuffle?}
+
+Suppose the dataset is stored in a meaningful order: perhaps examples are sorted by target value, grouped by class, recorded chronologically or gathered from one source before another. If SGD visits them in that fixed order, successive gradients can be systematically biased for long stretches of an epoch.
+
+Shuffling before each epoch mixes those local regularities. It does not change which examples exist in the dataset. It changes the order in which the changing model encounters them.
+
+Order matters because learning is iterative. After the first batch, the parameters have changed; therefore the second batch is evaluated by a slightly different model. Reversing the batches does not, in general, reverse the updates and return us to the same point.
+
+This connects directly to the Week~1 perceptron practical, where changing the order of examples could lead to a different separating boundary. The learning rule interacts with the path through the data.
+
+\begin{checkpointbox}
+A dataset has 12,000 examples. Compare batch sizes 1, 32, 256 and 12,000. Approximately how many updates occur in one epoch for each? Which setting should give the noisiest individual gradient estimates? Which gives the exact empirical gradient before each update?
+\end{checkpointbox}
+
+\section{When decreasing loss is not enough}
+
+Gradient descent answers a precise question: how can we change parameters to reduce the chosen objective? It does not answer a different question: does the resulting predictor use the information we intended it to use?
+
+This distinction is easy to expose with a linear model. Suppose the true data contain a relationship between \(x\) and \(y\), but we randomly shuffle the inputs while leaving the targets in place. The set of \(x\) values is unchanged and the set of \(y\) values is unchanged. What has been destroyed is their pairing.
+
+Under MSE, a model with a bias can still improve. Its weight may shrink toward zero while its bias approaches the mean target. The result is approximately
+\[
+  \hat y \approx \bar y.
+\]
+The learner has found a sensible constant baseline. Its loss may be far lower than at random initialisation. Yet it has not recovered the intended input--target relationship because that information is no longer present.
+
+This example introduces a habit that will become central later: when a model is supposed to use a particular signal, perturb or shuffle that signal and see what changes. A falling training loss shows that optimisation is doing something. It does not, by itself, establish what information the model has used.
+
+\subsection{Baselines return}
+
+Week~1 introduced the question ``better than what?'' In regression, an immediate baseline under MSE is the constant training-target mean. Under L1, the median is a natural constant baseline.
+
+If a sophisticated predictor barely beats such a constant, one of several things may be true: the inputs are weakly informative, the model cannot exploit them, optimisation has failed, or the evaluation sample is noisy. The baseline does not diagnose the cause, but it prevents us from mistaking mere reduction of error for useful learning.
+
+The Week~2 shuffled-input practical adds another diagnostic: \emph{prediction spread}. If predictions barely change as inputs change, the model may have collapsed toward a constant even though the loss looks respectable.
+
+\begin{keyidea}
+Optimisation answers ``did the parameters move in a direction favoured by the loss?'' A diagnostic asks ``did the model acquire the behaviour we intended?'' These are not the same question.
+\end{keyidea}
+
+\section{What stochasticity changes --- and what it does not}
+
+The word \emph{stochastic} can make SGD sound as if it has abandoned the objective and begun wandering randomly. That is the wrong picture.
+
+Each mini-batch gradient is still computed from the same model and the same loss. Randomness enters through which examples happen to contribute to a particular update. Across many representative batches, the gradient estimates fluctuate around the full-data direction. The path is noisy, but the noise is structured by the objective.
+
+This helps explain an initially surprising phenomenon: the full-dataset loss can increase after one perfectly valid mini-batch update. The update was chosen to reduce the loss of the current batch locally, not necessarily the loss of every training example simultaneously. Another batch may pull in a somewhat different direction.
+
+Over many updates, useful progress can emerge from these imperfect local estimates. In large-scale deep learning this is essential. Waiting for an exact full-corpus gradient after every parameter change would be computationally prohibitive.
+
+There is also a subtler benefit, which we will revisit in later weeks: the noise in SGD changes which optimisation trajectories are easy to follow. For now we need only the modest claim supported by the practical experiment: a gradient estimate need not be exact to be useful.
+
+\section{A complete linear-learning system}
+
+We can now write the entire system introduced abstractly in Week~1.
+
+For a batch of inputs \(\mat{X}\) and targets \(\mat{Y}\):
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Model.} Compute predictions
+  \[
+    \hat{\mat{Y}}=\mat{X}\mat{W}^{\top}+\vect{b}.
+  \]
+
+  \item \textbf{Residuals.} Compare predictions with targets.
+
+  \item \textbf{Loss.} Reduce those discrepancies to a scalar objective, for example MSE.
+
+  \item \textbf{Gradient.} Measure the local sensitivity of that objective to every adjustable parameter.
+
+  \item \textbf{Update.} Move the parameters a learning-rate-scaled step opposite the gradient.
+
+  \item \textbf{Repeat.} Use another batch and continue until the chosen stopping condition is reached.
+\end{enumerate}
+
+There is no magic transition between regression and deep learning. Neural networks elaborate the model in Step~1 and make Step~4 computationally more demanding. They also introduce new questions about representations, non-linearities, generalisation and the interaction of many layers. But the skeleton remains.
+
+\begin{optionalexercise}[title={Optional coding --- write the loop without an optimiser}]
+Create a small synthetic regression dataset with four input features and one target. Store the weights in a PyTorch tensor \(\vect{w}\) and the bias in a scalar tensor. Compute predictions using matrix multiplication, calculate MSE, and update \(\vect{w}\) and \(b\) using gradients you derive or obtain with `torch.autograd.grad`. Do not use `nn.Linear` or an optimizer.
+
+Then compare your predictions with an equivalent `nn.Linear(4, 1)` model whose parameters are initialised to the same values. The two forward computations should agree. The purpose is not speed; it is to see exactly what the convenience class packages together.
+\end{optionalexercise}
+
+\section{What to carry into Week 3}
+
+A linear layer can mix and reweight information, but it has an important limitation. If we compose one affine map with another affine map and insert no non-linearity between them, the result is still just another affine map. Depth alone does not yet buy us a richer class of functions.
+
+That observation sets up the next question. How can a model construct a decision boundary or transformation that one linear map cannot express? The answer begins by placing a non-linear operation after the weighted sum and then stacking such transformations.
+
+Before moving on, the central ideas of this chapter should be secure:
+
+\begin{itemize}[leftmargin=*]
+  \item A linear model is a weighted transformation of inputs plus a bias; matrix multiplication expresses many such weighted sums at once.
+  \item Residuals describe individual errors; a loss specifies how those errors are valued and combined.
+  \item MSE and L1 encode different preferences. A loss is therefore part of the task specification, not merely a score recorded after training.
+  \item A derivative measures local sensitivity. A gradient collects those sensitivities for all parameters.
+  \item Gradient descent moves parameters opposite the gradient; the learning rate controls the step size.
+  \item Mini-batch gradients are noisy estimates of the full-data gradient. Batch size, updates and epochs are related but distinct.
+  \item A falling loss is evidence of optimisation, not proof that the model uses the intended input or has learned the intended behaviour.
+\end{itemize}
+
+The machinery is still small enough to draw. From next week onward, we shall begin to hide some of it inside layers. The discipline should remain the same: whenever a network behaves strangely, return to the chain from prediction to loss to gradient to update and ask which link is producing the observed behaviour.
