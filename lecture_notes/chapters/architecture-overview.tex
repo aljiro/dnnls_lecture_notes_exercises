@@ -1,0 +1,79 @@
+\chapter{The running case study: predicting what happens next}
+\label{chap:architecture}
+
+These notes use one system repeatedly as a case study. It is useful precisely because it is not a clean toy problem. The system is asked to continue a short visual story: from four consecutive movie frames and four textual descriptions, it must predict a fifth frame and a fifth description. The data also identify characters, objects, settings and character bounding boxes. At first sight this sounds like an ordinary supervised-learning problem. It is not.
+
+The difficulty is that films are edited. In most five-frame windows the fifth frame is a different camera shot from the preceding frames. The next image is therefore only partly determined by what has already been observed. Many visually different frames can be perfectly plausible continuations. A learner that is asked for a single pixel-perfect answer is being given an impossible contract: the data contain several possible futures, while the objective insists that exactly one of them was correct.
+
+This tension --- between what the data determine and what the objective rewards --- is the reason the architecture is useful throughout the module. We will not introduce every component at once. Each week will return to one mechanism or one diagnostic when the relevant concept has become available.
+
+\section{The task}
+
+Let a story provide a sequence of frames and descriptions,
+\[
+  (I_1, s_1), (I_2, s_2), \ldots .
+\]
+For one training example the system receives
+\[
+  x = \big((I_1,s_1),\ldots,(I_4,s_4)\big)
+\]
+and the target is
+\[
+  y = (I_5,s_5).
+\]
+The frame is represented at a modest resolution of \(60\times125\) pixels. The descriptions are short natural-language sentences. Structured annotations tell us which characters occur in each frame, where they are, which objects are present, and the setting.
+
+\begin{figure}[ht]
+  \figureaction{Draw a five-panel movie-strip illustration. Panels 1--4 should be grouped under ``input'' and panel 5 under ``target''. Put one short description beneath each panel. Make panel 5 visibly change camera shot so the ambiguity of next-frame prediction is apparent.}
+  \caption{The StoryReasoning task. Four frame--description pairs are observed and the fifth must be predicted. A shot change is common, so the target pixels need not be a simple continuation of the visible motion.}
+  \label{fig:architecture-task}
+\end{figure}
+
+The phrase ``predict the next frame'' hides several different problems. We might ask for the exact target pixels, a compact representation of the frame, the most plausible frame among a set of candidates, or a distribution from which several plausible futures can be sampled. These are not interchangeable formulations. They expose the learner to the same raw observations but ask different questions of them.
+
+\section{The central trap: an average can win}
+
+Suppose two futures are plausible: in one the camera cuts to character A, and in another it cuts to character B. A learner trained with a pixelwise absolute-error loss is not rewarded for producing a sharp image of either plausible future unless it happens to match the recorded target. Across many ambiguous examples, the safe prediction moves toward a per-pixel median of the possible outcomes. The result can be visually unconvincing and nevertheless obtain a better pixel score than a sharp but different plausible frame.
+
+The repository makes this visible before introducing a complex model. On the held-out StoryReasoning windows, a constant per-pixel median image obtains an image L1 of about \(0.151\). Copying the last real frame gives roughly \(0.170\). Even an oracle that is allowed to inspect the target and choose the best of the four input frames reaches only about \(0.130\). On shot cuts, which account for roughly \(85\%\) of the windows, a real frame from the same story can therefore score worse than the bland constant image.
+
+\begin{keyidea}
+A numerical objective is not a neutral observer. It defines which errors count. If the target is genuinely multimodal, a loss on one deterministic output can reward averaging even when averaging destroys the property we care about.
+\end{keyidea}
+
+This is why the case study begins with floors and diagnostics rather than with an elaborate neural network. Before asking whether a model is sophisticated, we ask what a trivial predictor can achieve and whether the metric rewards the behaviour we actually want.
+
+\section{The full system, seen from a distance}
+
+The eventual architecture contains several familiar pieces, but they enter the course one at a time.
+
+A convolutional autoencoder first learns a compact latent representation of each frame. Text descriptions are represented using a frozen pretrained sentence encoder, while a recurrent language model learns how descriptions in the corpus are written. For each of the four observed time steps, visual and textual representations are fused and passed through a recurrent sequence model. From that sequence representation, different heads predict visual information, textual information and character presence.
+
+Several later mechanisms are responses to specific failures. Content-dependent attention can select useful inputs, but selection must be tested rather than assumed. Pretrained components require protection against fine-tuning drift. Per-character prediction works better when each character's own history is preserved rather than compressed into one shared vector. The text generator benefits from attending directly to descriptions and character names. Finally, because the next image is genuinely uncertain, a variational latent models a distribution over possible futures rather than forcing all uncertainty into one deterministic vector.
+
+\begin{figure}[ht]
+  \figureaction{Create a clean high-level block diagram of the final StoryReasoning system. Show four repeated input pairs (frame encoder + text encoder), fusion into a sequence model, then separate branches for image latent/decoder, text embedding/language decoder, and character prediction. Add a small ``stochastic latent'' block on the image branch and memory/cross-attention on the text branch. Keep component names high-level; do not show tensor dimensions.}
+  \caption{The running architecture at a glance. The course will unpack these components progressively; students are not expected to understand the whole diagram at the beginning.}
+  \label{fig:architecture-overview}
+\end{figure}
+
+The important point is not the inventory of modules. The architecture is a record of questions:
+
+\begin{itemize}[leftmargin=*]
+  \item Can a frame be compressed without losing the information needed to reconstruct it?
+  \item Does the sequence model actually use the textual condition, or can the decoder ignore it?
+  \item Does attention vary with the content of each example, or merely learn a positional prior?
+  \item When several losses share one representation, do they cooperate or compete?
+  \item Do pretrained encoders retain the representations that made them useful?
+  \item If several futures are plausible, should the output be a point estimate, a retrieval ranking, or a distribution?
+\end{itemize}
+
+Each question has a diagnostic. That habit is as important as any individual architectural component.
+
+\section{How to read the architecture boxes}
+
+Most weekly chapters contain a small box titled \emph{Application to the architecture}. The box does not attempt to teach the complete system. It takes one concept from the week and asks what that concept reveals about the running case study.
+
+In Week~1 the issue is task definition and baselines. In Week~2 it is loss as specification. Later weeks turn to representation collapse, convolutional encoders, memory, attention, generative latent variables and representation geometry. The architecture therefore develops twice: once as an engineering system, and once as a sequence of increasingly precise questions we learn how to ask of it.
+
+That second development is the more important one.

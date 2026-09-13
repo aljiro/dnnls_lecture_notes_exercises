@@ -12,6 +12,7 @@
 \usepackage{enumitem}
 \usepackage{xcolor}
 \usepackage{listings}
+\usepackage[most]{tcolorbox}
 \usepackage{hyperref}
 \usepackage[nameinlink,noabbrev]{cleveref}
 \usepackage[backend=biber,style=authoryear,maxcitenames=2]{biblatex}
@@ -32,7 +33,8 @@
   frame=single,
   breaklines=true,
   columns=fullflexible,
-  showstringspaces=false
+  showstringspaces=false,
+  language=Python
 }
 
 % Common mathematical notation. Extend sparingly as the module develops.
@@ -40,3 +42,73 @@
 \newcommand{\vect}[1]{\bm{#1}}
 \newcommand{\mat}[1]{\bm{#1}}
 \newcommand{\loss}{\mathcal{L}}
+\newcommand{\dataset}{\mathcal{D}}
+
+% Reusable lecture-note boxes.
+\definecolor{DNNLSBlue}{RGB}{35,72,111}
+\definecolor{DNNLSGreen}{RGB}{43,93,74}
+\definecolor{DNNLSGold}{RGB}{137,101,30}
+\definecolor{DNNLSGrey}{RGB}{82,82,82}
+
+\newtcolorbox{keyidea}[1][]{
+  enhanced,breakable,
+  colback=DNNLSBlue!4,
+  colframe=DNNLSBlue!70!black,
+  fonttitle=\bfseries,
+  title={Key idea},
+  #1
+}
+
+\newtcolorbox{architecturebox}[1][]{
+  enhanced,breakable,
+  colback=DNNLSGreen!4,
+  colframe=DNNLSGreen!75!black,
+  fonttitle=\bfseries,
+  title={Application to the architecture},
+  #1
+}
+
+\newtcolorbox{optionalexercise}[1][]{
+  enhanced,breakable,
+  colback=DNNLSGold!5,
+  colframe=DNNLSGold!75!black,
+  fonttitle=\bfseries,
+  title={Optional exercise},
+  #1
+}
+
+\newtcolorbox{checkpointbox}[1][]{
+  enhanced,breakable,
+  colback=black!2,
+  colframe=DNNLSGrey,
+  fonttitle=\bfseries,
+  title={Check your understanding},
+  #1
+}
+
+\newtcblisting{pytorchbox}[1]{
+  enhanced,
+  breakable,
+  listing only,
+  colback=black!1,
+  colframe=DNNLSBlue!65!black,
+  fonttitle=\bfseries,
+  title={PyTorch: #1},
+  listing options={
+    language=Python,
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=fullflexible,
+    showstringspaces=false
+  }
+}
+
+% A visible placeholder that never refers to a file that does not yet exist.
+% Use inside a figure environment and add a normal caption below it.
+\newcommand{\figureaction}[1]{%
+  \begin{center}
+  \fbox{\parbox[c][44mm][c]{0.88\textwidth}{%
+    \centering\textbf{ACTION --- create this figure}\\[0.6em]
+    #1}}
+  \end{center}
+}

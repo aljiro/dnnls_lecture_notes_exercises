@@ -1,4 +1,606 @@
-\chapter{Introduction and Fundamentals of Machine Learning}
+\chapter{Learning from examples}
 \label{chap:week01}
 
-% Week 1 lecture notes will be developed on the curriculum/week-01 branch.
+A machine can be made to perform a task in at least two very different ways. We may attempt to write down the rules ourselves, or we may arrange matters so that the machine acquires a rule from examples. The second possibility is what concerns us here.
+
+This distinction sounds simple, but nearly every difficulty in machine learning can be traced to a question hidden inside it. Which examples were shown? What information did they contain? What rule was the machine allowed to represent? What counted as a mistake? And, after the machine has adapted itself to the examples, why should the resulting rule work on an example it has never seen?
+
+This chapter establishes the vocabulary with which the rest of the module will answer those questions. We will deliberately resist the temptation to begin with a large neural network. The first object of study is the \emph{learning problem} itself.
+
+\begin{keyidea}
+Machine learning is the construction of a rule from a finite sample under a chosen objective. The algorithm, the architecture and the dataset matter because each restricts which rule can be found; the objective matters because it states what ``better'' means.
+\end{keyidea}
+
+\section{Several traditions, one modern subject}
+
+Modern machine learning did not descend from a single idea. It sits at a meeting point of statistical inference, computation, pattern recognition, neuroscience and artificial intelligence. These traditions asked different questions, and the field still carries the marks of all of them.
+
+\subsection{Statistics: fitting a rule to observations}
+
+Statistical modelling begins from a stubborn fact: observations vary. If we measure the height of a population, the demand for a product or the position of points in a noisy experiment, no finite table of measurements is the phenomenon itself. We infer regularities from a sample.
+
+The classical statistical tradition developed methods for estimation, regression, likelihood and uncertainty. Pearson's work on fitting low-dimensional lines and planes to clouds of points is an early example of a theme that will reappear throughout this module: choose a representation and an error criterion, then find the parameters that make the observations least surprising or least discrepant \parencite{pearson1901}. What we now call ``training a model'' inherits much of this logic.
+
+The statistical contribution is not merely a bag of techniques. It supplies a discipline of thought: a finite dataset is evidence about a larger process, and any conclusion drawn from it is conditional on how that evidence was obtained.
+
+\subsection{Computation and artificial intelligence: what can a machine do?}
+
+The development of programmable digital computers made a different question urgent. Could tasks associated with intelligence be expressed as computation? Turing's famous discussion of machine intelligence shifted attention away from defining an essence called ``thinking'' and toward observable capabilities and procedures \parencite{turing1950}. Early artificial intelligence often pursued explicit symbolic rules: if the world could be described in the right symbols, perhaps reasoning could be written as transformations over those symbols.
+
+Symbolic systems remain important. But they expose a practical difficulty. Many tasks that humans perform effortlessly --- recognising a face, parsing speech in a noisy room, judging whether two images depict the same object --- are difficult to reduce to a complete list of hand-written rules. The world supplies more variation than the programmer can conveniently enumerate.
+
+Machine learning offers another route: specify examples and an objective, then let the parameters of a model absorb some of that variation.
+
+\subsection{Neuroscience: inspiration without identity}
+
+A third influence came from attempts to understand nervous systems. McCulloch and Pitts described simplified threshold units as logical elements \parencite{mcculloch1943}; Hebb proposed a principle by which co-activation might strengthen connections \parencite{hebb1949}; Rosenblatt's perceptron turned the idea of an adjustable weighted unit into a learning system \parencite{rosenblatt1958}.
+
+These ideas mattered enormously, but a warning is useful from the beginning. An artificial neural network is not a miniature biological brain. A modern unit that computes a weighted sum followed by a non-linearity is at most a distant abstraction of a biological neuron. Backpropagation, tokenisation, batch normalisation, attention and GPU matrix multiplication are engineering and mathematical devices, not claims about the literal operation of cortex.
+
+Biology supplied questions and metaphors: distributed representation, adaptation, local interactions, hierarchical processing. Deep learning is best understood as a mathematical technology that borrowed some of those broad ideas and then developed according to its own constraints.
+
+\subsection{From hand-designed features to learned representations}
+
+For much of the history of pattern recognition, a large fraction of the intelligence in a system was supplied by the designer. An image classifier might first be given edges, corners, texture descriptors or other carefully chosen measurements; a separate learning algorithm then mapped those measurements to labels.
+
+Neural networks alter this division of labour. Intermediate representations can themselves be adjusted by learning. The revival of multilayer networks through efficient backpropagation \parencite{rumelhart1986}, followed decades later by larger datasets, faster hardware and successful deep architectures, made this strategy practical at scale. Deep learning came to dominate many perceptual tasks because multiple layers could learn progressively useful transformations rather than relying entirely on a fixed feature pipeline \parencite{lecun2015}.
+
+The recent development of large pretrained and foundation models extends the same tendency. A representation may be learned from a very broad corpus with a self-supervised objective, then reused or adapted for many later tasks \parencite{bommasani2021}. The centre of gravity has moved from ``which features shall we program?'' toward ``what objective, data and architecture will cause useful features to emerge?''
+
+\begin{figure}[ht]
+  \figureaction{Draw three streams labelled ``statistics'', ``computation/AI'' and ``neuroscience/pattern recognition'' flowing into ``modern machine learning / deep learning''. Under each stream place 2--3 concepts rather than a timeline: estimation and uncertainty; algorithms and symbolic reasoning; adaptive weighted units and distributed representations. End with learned representations and foundation models.}
+  \caption{A conceptual, rather than chronological, history of machine learning. Modern deep learning inherits different questions from several intellectual traditions.}
+  \label{fig:week1-streams}
+\end{figure}
+
+\begin{checkpointbox}
+Why is it misleading to say that deep neural networks are ``models of the brain''? Give one idea that was biologically inspired and one important mechanism in a modern network that is primarily an engineering construction.
+\end{checkpointbox}
+
+\section{Examples are not the world}
+
+Consider a dataset of handwritten digits. It may contain sixty thousand training images, which sounds large. Yet there are vastly more possible handwritten digits than those sixty thousand. Different writers use different pens, angles, pressures and styles; future users may come from a different population from the people whose handwriting was collected.
+
+The dataset is therefore not the task. It is a finite observation of the process from which future cases will arise.
+
+We will use the following notation. An input example is \(x\). When a target is available, it is \(y\). A supervised dataset of \(n\) examples is
+\[
+  \dataset = \{(x_i,y_i)\}_{i=1}^{n}.
+\]
+A useful idealisation is that these examples were produced by some underlying data-generating distribution \(p(x,y)\):
+\[
+  (x_i,y_i) \sim p(x,y).
+\]
+The symbol \(p\) need not mean that we know the distribution analytically. Usually we do not. It expresses a more modest claim: there is a process that makes some examples common, some rare, and some perhaps impossible.
+
+\subsection{Sampling variability}
+
+If we draw two small samples from the same population, they need not look alike. One sample of 20 MNIST digits might contain several zeros and no nines; another might suggest the opposite. Neither sample is ``wrong''. They are different finite observations.
+
+As sample size increases, empirical proportions usually become more stable. But ``usually'' is an important word. A particular sample of 100 can by chance be more representative of a population than a particular sample of 1000. Statistical regularity is a statement about repeated sampling, not a guarantee attached to every individual dataset.
+
+This is the first reason machine learning is empirical. A measured accuracy is not a permanent property stamped onto a model. It is a measurement obtained on a particular sample.
+
+\begin{figure}[ht]
+  \figureaction{Create a two-part illustration. Left: a large cloud labelled ``data-generating process / population'' with several visibly different small samples drawn from it. Right: show estimates of one class proportion from many small samples as a wide histogram and from many large samples as a narrower histogram, both centred near the same population value.}
+  \caption{A dataset is a sample from a larger process. Repeated small samples can give noticeably different estimates; larger samples tend to reduce, but do not abolish, sampling variability.}
+  \label{fig:week1-sampling}
+\end{figure}
+
+This idea is explored directly in the Week~1 sampling practical. The purpose of the lecture is not to reproduce that experiment on paper, but to give it a place in the larger argument: every later claim about a model will be made through finite samples, so uncertainty enters before the first neural network has even been constructed.
+
+\subsection{Training, validation and test data}
+
+Once parameters are adjusted to fit examples, those examples can no longer provide an independent measurement of how well the rule works on unseen cases. A learner can exploit peculiarities of its training data. We therefore separate data according to purpose.
+
+The \emph{training set} is used to fit model parameters. The \emph{validation set} is used during development to compare designs, tune hyperparameters or decide when to stop. The \emph{test set} is reserved for a final estimate after those choices have been made.
+
+This is not bureaucratic bookkeeping. Repeatedly looking at a test set while changing a model turns the test set, indirectly, into training information. The model developer begins adapting decisions to that finite sample. The measurement becomes less independent.
+
+We will return to overfitting and experimental design in Week~4. For now, keep one principle: the data used to choose a rule and the data used to judge its generality play different roles.
+
+\section{What exactly is the machine being asked to do?}
+
+The phrase ``learn from data'' is incomplete. We must specify the form of the question and the form of the answer. Different tasks can use the same raw data while defining different learning problems.
+
+\subsection{Classification}
+
+In classification the target is a discrete category. Given an image \(x\), a digit classifier might predict
+\[
+  \hat{y} \in \{0,1,\ldots,9\}.
+\]
+Other examples include spam detection, sentiment classification, medical triage categories and identifying species in an image.
+
+The output need not be only a final label. A model often computes a score for each possible class and the label is derived from those scores. We will study that mechanism in detail in later weeks.
+
+Classification answers a question of the form: \emph{which of these categories best describes the input?}
+
+\subsection{Regression}
+
+In regression the target is numerical and usually treated as continuous. Examples include predicting energy consumption, estimating the age of an object, forecasting a temperature or predicting a physical coordinate.
+
+A regression model may have one output,
+\[
+  \hat{y} \in \R,
+\]
+or many numerical outputs,
+\[
+  \hat{\vect{y}} \in \R^d.
+\]
+Week~2 will use regression to build our first complete differentiable learning system.
+
+\subsection{Density estimation and generative modelling}
+
+Sometimes the objective is not to predict a supplied label at all. We may want to model how the observations themselves are distributed.
+
+A density model attempts, explicitly or implicitly, to assign high probability to plausible observations and low probability to implausible ones. A generative model uses what it has learned to produce new samples. Modern image generators and language models belong broadly to this family, although the probability models and training procedures can be very different.
+
+Text completion is a useful example. Given preceding text, a language model predicts a distribution over the next token. Repeating that operation generates a sequence. It is still a prediction problem, but the object predicted is a probability distribution and there may be many acceptable continuations.
+
+\subsection{Structured prediction}
+
+Some outputs contain many related parts. A semantic segmentation model predicts a category for each pixel. An object detector predicts a set of bounding boxes, class labels and confidence scores. Speech recognition and translation produce sequences whose elements depend on one another.
+
+Calling these tasks ``classification'' misses an important fact: the structure of the output matters. The model must predict not merely \emph{what} is present, but an organised collection of interdependent quantities.
+
+\subsection{Ranking and retrieval}
+
+In ranking and retrieval, the model need not manufacture the answer. It may instead score existing candidates.
+
+A search system ranks documents for a query. A recommendation system ranks items for a user. An image--text retrieval model can be asked to find which image best matches a caption. The output is therefore a comparison:
+\[
+  s(x,c_1), s(x,c_2), \ldots, s(x,c_m),
+\]
+followed by an ordering of candidates \(c_j\).
+
+This distinction becomes important in our running architecture. Predicting the exact pixels of the next movie frame is very different from retrieving the true next frame from a candidate set, even though both are called ``next-frame prediction'' in casual conversation.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.19\textwidth}p{0.24\textwidth}p{0.42\textwidth}}
+\toprule
+Problem type & Typical output & Example questions \\
+\midrule
+Classification & discrete class or class scores & Which digit? Is this review positive? \\
+Regression & one or more real values & What temperature? What position? \\
+Generative / density & distribution or sample & What text/image could plausibly come next? \\
+Structured prediction & sequence, mask, set, boxes & Which word sequence? Which pixels belong to each class? \\
+Ranking / retrieval & scores or ordering over candidates & Which document, image or item is most relevant? \\
+\bottomrule
+\end{tabular}
+\caption{Several common machine-learning problem types. The categories overlap in modern systems, but each foregrounds a different form of output.}
+\label{tab:week1-problem-types}
+\end{table}
+
+\begin{optionalexercise}[title={Optional exercise --- one dataset, several tasks}]
+Take a collection of street photographs with object labels, bounding boxes and captions. Formulate five different learning problems from the same raw data: one classification problem, one regression problem, one structured-prediction problem, one generative problem and one retrieval problem. For each, state precisely what \(x\) and \(y\) are.
+
+The useful difficulty is not inventing an application; it is discovering how much the mathematical problem changes when the target changes.
+\end{optionalexercise}
+
+\section{Ways of obtaining a teaching signal}
+
+Problem type describes the form of the task. A second distinction concerns where the learning signal comes from.
+
+\subsection{Supervised learning}
+
+In supervised learning, training examples contain inputs paired with desired targets:
+\[
+  (x_i,y_i).
+\]
+The target may be a class, a number, a mask, a sequence or some more complicated structure. The learner receives evidence about what answer should be produced for each training input.
+
+Supervision does not mean that a human necessarily typed every label. Labels can come from instruments, existing databases, simulations or other automated processes. The defining point is the pairing of an input with a target for the task being learned.
+
+\subsection{Unsupervised learning}
+
+In unsupervised learning, there is no task-specific target \(y_i\) supplied with each observation. The learner is asked to discover structure in the observations \(x_i\) themselves: clusters, low-dimensional factors, density, recurring patterns or useful representations.
+
+The word ``unsupervised'' can be misleading if taken to mean ``without an objective''. There is always some computational criterion. What is absent is the externally supplied target for the final task.
+
+\subsection{Self-supervised learning}
+
+Self-supervised learning constructs a prediction problem from the data themselves. The target is present inside the observation rather than supplied as a separate human annotation.
+
+A language model can hide or shift part of a text sequence and predict it from the rest. An image system can learn by matching different views of the same image. A video system can predict withheld temporal information. In each case the data generate their own supervisory signal.
+
+This strategy has become central because raw text, images, audio and video are abundant while carefully labelled examples are expensive. Large pretrained models can learn representations from broad unlabelled corpora and later be adapted to a smaller supervised task.
+
+\subsection{Semi-supervised learning}
+
+Semi-supervised learning combines a smaller labelled collection with a larger unlabelled collection. The aim is to use structure learned from the unlabelled data to reduce the amount of expensive supervision required.
+
+In practice the boundaries between these paradigms are porous. A system might be pretrained self-supervised on millions of images, fine-tuned with supervised labels, and then used inside a larger system trained with another objective. The paradigms describe sources of learning signal, not mutually exclusive species of algorithm.
+
+\subsection{Reinforcement learning: a different feedback structure}
+
+Reinforcement learning is not a focus of this module, but it belongs on the map. An agent acts, observes consequences and receives rewards rather than a correct target for every action. The feedback can be delayed: an action may matter because of what it makes possible many steps later.
+
+For our purposes, notice the contrast. Supervised learning often says ``for this input, here is the desired output''. Reinforcement learning says ``after interacting with the environment, here is a scalar indication of how well things went''. Both are learning from experience, but the information supplied by experience is different.
+
+\begin{figure}[ht]
+  \figureaction{Make a compact diagram comparing supervised, unsupervised, self-supervised and reinforcement learning. Use the same visual language for all four: show where \(x\), \(y\), derived targets and rewards come from. Emphasise that self-supervised targets are constructed from the data, while reinforcement learning receives evaluative reward after actions.}
+  \caption{Learning paradigms differ mainly in the source and structure of the teaching signal. Modern systems often combine more than one paradigm.}
+  \label{fig:week1-learning-paradigms}
+\end{figure}
+
+\section{The supervised-learning skeleton}
+
+We now write down the smallest complete supervised-learning system. The notation introduced here will persist for the rest of the module.
+
+\subsection{1. A dataset}
+
+We observe
+\[
+  \dataset = \{(x_i,y_i)\}_{i=1}^{n}.
+\]
+The \(x_i\) are inputs; the \(y_i\) are targets. Their form depends on the task.
+
+For digit recognition, \(x_i\) is an image and \(y_i\) is a digit class. For house-price prediction, \(x_i\) might be a vector of measurements and \(y_i\) a price. For translation, both \(x_i\) and \(y_i\) are sequences.
+
+\subsection{2. A parameterised model}
+
+A model is a function with adjustable parameters:
+\[
+  f_{\theta}(x).
+\]
+The symbol \(\theta\) stands for all adjustable quantities: perhaps two numbers in a tiny regression model, perhaps billions of weights in a large neural network.
+
+For an input \(x_i\), the model produces a prediction
+\[
+  \hat{y}_i = f_{\theta}(x_i).
+\]
+
+The parameters are not the same thing as the input. An input changes from example to example. The parameters persist and are changed by learning.
+
+\subsection{3. A loss}
+
+A loss function measures discrepancy between prediction and target:
+\[
+  \ell(\hat{y}_i,y_i).
+\]
+Training usually aggregates losses over many examples:
+\[
+  \loss(\theta)
+    = \frac{1}{n}\sum_{i=1}^{n}
+      \ell\!\left(f_{\theta}(x_i),y_i\right).
+\]
+
+At this stage we will not ask how \(\theta\) is changed. That is the subject of Week~2. The important point is logical: the learner can only improve relative to a criterion. ``Make better predictions'' becomes operational only when ``better'' has been encoded in an objective.
+
+\subsection{4. Training}
+
+Training is the process that changes \(\theta\) so as to reduce the chosen objective on training data. In modern neural networks, this is usually done iteratively using gradients. But the abstract idea is broader. The Week~1 perceptron practical already gives an example of iterative parameter adaptation without requiring the gradient-descent machinery we will develop next.
+
+Training is therefore not the same thing as running the model. It is a process that modifies the persistent rule.
+
+\subsection{5. Inference}
+
+After training, inference means applying the learned model to inputs:
+\[
+  x \longmapsto f_{\theta}(x).
+\]
+The parameters are normally held fixed. Inference asks what the learned rule predicts; training asks how the rule itself should change.
+
+Later in the module we will deliberately blur this boundary when studying systems that retrieve, adapt or perform optimisation-like computation during a forward pass. For now, keeping the distinction sharp is useful.
+
+\subsection{6. Evaluation}
+
+Finally, we measure behaviour on examples not used to fit the parameters. Evaluation requires a metric that corresponds to the question we care about: accuracy, absolute error, top-\(k\) retrieval, intersection-over-union, calibration error, human preference, or something else.
+
+The training loss and evaluation metric can be related without being identical. A differentiable loss may be convenient for learning while a task metric is more meaningful for reporting. This difference will matter repeatedly.
+
+\begin{figure}[ht]
+  \figureaction{Draw the six-part supervised-learning loop: dataset \(\rightarrow\) model \(f_\theta\) \(\rightarrow\) prediction \(\hat y\) \(\rightarrow\) loss against \(y\) \(\rightarrow\) parameter update, with a separate evaluation arrow to held-out data. Visually distinguish the training loop from the inference path \(x\rightarrow f_\theta(x)\rightarrow\hat y\).}
+  \caption{The skeleton of supervised learning. Week~1 names the parts; Week~2 will explain how the loss produces parameter updates.}
+  \label{fig:week1-supervised-skeleton}
+\end{figure}
+
+\begin{pytorchbox}{the notation in code}
+import torch
+from torch import nn
+
+# x: a batch of input examples
+# y: the corresponding targets
+
+model = nn.Linear(in_features=4, out_features=1)  # f_theta
+y_hat = model(x)                                 # prediction
+
+loss_fn = nn.MSELoss()                           # ell(...)
+loss = loss_fn(y_hat, y)                         # L(theta)
+\end{pytorchbox}
+
+This code is intentionally incomplete. It creates a parameterised model, performs a forward computation and evaluates a loss. It does not yet change the parameters. In Week~2 we will add the mechanism that connects the loss to an update.
+
+Notice also how little of the mathematics depends on PyTorch. `nn.Linear` is one implementation of \(f_\theta\); `nn.MSELoss` is one implementation of \(\ell\). The conceptual structure survives if both are replaced.
+
+\begin{checkpointbox}
+For a speech-recognition system, identify \(x\), \(y\), \(\hat y\), \(\theta\), a possible training loss and a possible evaluation metric. Which of these change from one example to the next, and which persist across examples?
+\end{checkpointbox}
+
+\section{Learning is not merely fitting}
+
+It is easy to produce a rule that works on the data already observed. The difficult claim is that the rule captures something that persists beyond them.
+
+Suppose a student memorises the answers to a practice sheet. On the same sheet, performance can be perfect. A new exam reveals whether a transferable rule was learned. A machine-learning model faces the same logical test.
+
+\subsection{Empirical risk and the unseen process}
+
+The training objective
+\[
+  \frac{1}{n}\sum_i \ell(f_\theta(x_i),y_i)
+\]
+is an \emph{empirical} quantity: it is computed on observed examples. What we actually care about is expected performance on future examples from the relevant process:
+\[
+  \mathbb{E}_{(x,y)\sim p}
+  \left[\ell(f_\theta(x),y)\right].
+\]
+We cannot usually compute this expectation exactly because we do not possess the full distribution \(p\). Held-out test data provide another finite estimate.
+
+This gap between what is optimised and what is ultimately desired is the home of generalisation.
+
+Generalisation is not a mysterious extra property sprinkled on a trained network. It is the consequence we hope for when the regularities used to fit the sample are also regularities of future data.
+
+\subsection{The distribution matters}
+
+The phrase ``unseen data'' is not enough. A model trained on daytime road images in Sheffield may perform poorly on snowy night-time images in another country. Those examples are unseen, but they may also come from a changed distribution.
+
+Thus a model does not generalise in the abstract. It generalises from one collection process to another to the extent that the useful regularities are shared.
+
+This is why dataset design is part of model design. A perfect optimiser cannot recover information that the examples never provide.
+
+\begin{optionalexercise}[title={Optional mathematics --- empirical and expected error}]
+Suppose a classifier makes an error with probability \(q\) on the population from which a test set is independently sampled. If the test set contains \(m\) examples, the number of observed errors is binomial with mean \(mq\).
+
+Without using a normal approximation, write the variance of the measured error rate. What happens to that variance when \(m\) is multiplied by four? Relate the result to the widening and narrowing histograms in the Week~1 sampling practical.
+\end{optionalexercise}
+
+\section{The loss is part of the problem statement}
+
+For the moment, treat a loss as a scoring rule that tells the learner which changes count as improvement. This modest definition is already enough to expose an important principle.
+
+Two models can see exactly the same data and be trained on what appears verbally to be the same task, yet learn different behaviours because their objectives differ.
+
+For a numerical target we might penalise squared error,
+\[
+  \ell_{\mathrm{MSE}}(\hat y,y)=(\hat y-y)^2,
+\]
+or absolute error,
+\[
+  \ell_{\mathrm{L1}}(\hat y,y)=|\hat y-y|.
+\]
+These expressions disagree about how strongly large errors should matter. For classification, other losses are designed around class scores and probabilities. For retrieval, a contrastive objective may reward the correct candidate being closer than incorrect candidates.
+
+Week~2 will make this idea concrete. For now the lesson is conceptual: a model never sees the teacher's intention directly. It sees data and an objective.
+
+\begin{keyidea}
+The loss is a specification written in mathematics. If the specification rewards the wrong behaviour, successful optimisation can make the system worse according to our actual intention.
+\end{keyidea}
+
+This is one reason ``the training loss went down'' is never, by itself, a scientific conclusion. It tells us that the learner became better at the quantity we asked it to optimise. We still have to justify that quantity.
+
+\section{Better than what? Baselines and floors}
+
+A score in isolation carries surprisingly little information. Suppose a classifier achieves \(90\%\) accuracy. Is that impressive?
+
+If the ten classes are balanced, \(90\%\) may be excellent. If one class appears \(95\%\) of the time, a model that ignores the input and always predicts the majority class reaches \(95\%\). The apparently sophisticated classifier is then worse than a constant rule.
+
+A \emph{baseline} is a deliberately simple comparison that tells us what can be achieved without the behaviour we hope the model has learned. Depending on the task, useful baselines include:
+
+\begin{itemize}[leftmargin=*]
+  \item random or chance prediction;
+  \item always predicting the majority class;
+  \item always predicting the mean or median target;
+  \item copying the previous observation in a temporal problem;
+  \item nearest-neighbour or other simple retrieval;
+  \item a small linear model before trying a deep model.
+\end{itemize}
+
+The purpose of a baseline is not to win. It is to remove easy explanations.
+
+If a complex model barely beats a constant predictor, we should not begin by celebrating the complexity. We should ask what information the task and metric make available, whether the model uses the intended input, and whether the comparison itself is sensible.
+
+\subsection{A baseline can diagnose the metric}
+
+Baselines do more than tell us whether a model is good. They can reveal that a metric rewards an unintended solution.
+
+If copying a real previous frame scores worse than a blurry constant image under a next-frame metric, the surprising result is not merely ``the copy baseline is bad''. It is evidence that the metric favours central tendency over visual plausibility.
+
+This turns a baseline into an experimental instrument.
+
+\begin{architecturebox}
+The StoryReasoning system in \cref{chap:architecture} predicts the fifth movie frame from four preceding frame--description pairs. Before training the sequence model, the repository evaluates three image floors under pixel L1:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Predictor & all windows & shot continues & shot cuts \\
+\midrule
+Per-pixel median image & 0.151 & 0.111 & 0.154 \\
+Copy last input frame & 0.170 & 0.041 & 0.178 \\
+Best of four inputs (oracle) & 0.130 & 0.040 & 0.142 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Only about \(15\%\) of windows continue the same shot. On those windows, copying a real frame is excellent. On the much more common shot cuts, the constant median image beats copying the last real frame.
+
+This Week~1 observation is already architectural: it tells us that ``predict the next frame'' has been underspecified. Pixel prediction, latent prediction, retrieval and distributional prediction are different learning problems. A stronger network cannot remove that distinction. Before asking how to optimise the system, we must decide which problem we mean.
+\end{architecturebox}
+
+\begin{optionalexercise}[title={Optional coding --- a baseline before a model}]
+Create a synthetic binary-classification dataset with 90 examples from class 0 and 10 from class 1. Do not train a model.
+
+Write three predictors: random guessing with equal probability, always class 0, and a predictor that samples according to the observed class proportions. Estimate their accuracies over many repeated predictions.
+
+Then answer the important question: if a learned classifier reports \(89\%\) accuracy on this dataset, what evidence would you need before claiming that it learned anything useful about \(x\)?
+\end{optionalexercise}
+
+\section{A task is a contract}
+
+We can now assemble the pieces.
+
+A machine-learning problem specifies at least:
+
+\begin{enumerate}[leftmargin=*]
+  \item a source of examples and a sampling process;
+  \item what information is presented as input \(x\);
+  \item what output or target is desired;
+  \item a model family \(f_\theta\) that determines which rules are representable;
+  \item an objective that decides which parameter changes are rewarded;
+  \item an evaluation procedure on data not used to fit the parameters;
+  \item baselines that reveal how much of the score is obtainable trivially.
+\end{enumerate}
+
+Change any one of these and, in an important sense, you have changed the learning problem.
+
+This perspective prevents a common mistake: treating ``the neural network'' as the only interesting object. A network can be perfectly implemented and still fail because the data omit the needed signal, the target is ambiguous, the loss rewards a shortcut, the evaluation set is unrepresentative, or the baseline already solves the task.
+
+The model is one participant in a system of choices.
+
+\subsection{An example: sentiment analysis}
+
+Suppose we want to classify film reviews as positive or negative.
+
+The input \(x\) might be the raw review text. The target \(y\) might be a binary sentiment label. A supervised dataset contains many paired reviews and labels. A model \(f_\theta\) maps text to class scores. A classification loss rewards assigning higher score to the labelled class. Training adjusts \(\theta\). Evaluation estimates accuracy on held-out reviews.
+
+Now alter one element at a time.
+
+If the dataset contains reviews from one website and the test data come from another, the sampling process changes. If the input includes the numerical star rating, the model may solve the task by using a trivial leakage feature rather than understanding text. If the target changes from positive/negative to a five-star score, classification may become ordinal classification or regression. If the evaluation metric weights rare negative reviews more heavily, the practical meaning of ``good'' changes.
+
+None of these alterations requires changing the word ``sentiment'', yet the learning problem has changed substantially.
+
+\subsection{An example: image generation}
+
+Suppose a system is given a text prompt and asked to generate an image. There is usually no single correct pixel array. A loss that compares one generated image pixel by pixel with one recorded target may punish a plausible image simply because it differs in harmless details.
+
+The ambiguity is not a defect in the data. It is part of the task. The correct formulation may need a distribution, a perceptual criterion, adversarial comparison, diffusion objective, retrieval metric or human judgement.
+
+This is the same logical difficulty that appears in StoryReasoning, only in a more familiar modern form.
+
+\section{Where neural networks enter}
+
+Nothing so far requires a neural network. That is deliberate.
+
+A neural network is a flexible family of parameterised functions. Its appeal is that the same basic machinery can learn useful mappings in images, text, audio, tabular data and mixtures of these modalities. But the network still lives inside the skeleton we have already built:
+\[
+  \text{examples}
+  \rightarrow
+  f_\theta
+  \rightarrow
+  \text{predictions}
+  \rightarrow
+  \text{loss}
+  \rightarrow
+  \text{parameter change}.
+\]
+
+The next weeks will open the box \(f_\theta\). We will first study the simplest numerical transformation, then the mechanism by which a loss changes parameters, then the non-linear layers that give neural networks their expressive power.
+
+The order matters. If we begin with architecture names, it is easy to mistake machine learning for a catalogue: MLP, CNN, RNN, Transformer. If we begin with the learning problem, each architecture can instead be understood as an answer to a question about information and computation.
+
+\begin{pytorchbox}{a tiny neural network is still just a function}
+from torch import nn
+
+model = nn.Sequential(
+    nn.Linear(4, 8),
+    nn.ReLU(),
+    nn.Linear(8, 3),
+)
+
+# For a batch x with shape [batch, 4],
+# the model returns three output scores per example.
+scores = model(x)
+\end{pytorchbox}
+
+We will not yet analyse why the hidden layer helps, how the parameters are initialised, or how gradients pass through the two linear layers. Those questions belong to Weeks~2--4. At this stage, the code should be read only as a concrete instance of \(f_\theta(x)\): a parameterised computation from input to output.
+
+\section{Connections to the Week 1 practical work}
+
+The practical exercises are designed to make several claims from this chapter observable rather than merely plausible.
+
+The sampling experiment uses repeated subsamples of MNIST to show that finite samples fluctuate. It is evidence for the distinction between a dataset and a population-level process.
+
+The distribution and summary exercises examine what is preserved or lost when data are reduced to statistics. That theme will later become representation: a model must compress information without discarding what the task needs.
+
+The simple transformation exercise builds geometric intuition for matrices before Week~2 turns a linear transformation into a trainable regression model.
+
+Finally, the mistake-driven classifier shows a primitive but important learning loop. The learner is never handed the correct decision boundary. It receives examples, makes errors, changes persistent parameters and can end at different valid solutions depending on the path through the data. This anticipates optimisation without requiring us to introduce gradient descent prematurely.
+
+The lecture and practical therefore meet in the same chain:
+\[
+  \text{examples}
+  \rightarrow
+  \text{sampling}
+  \rightarrow
+  \text{representation}
+  \rightarrow
+  \text{prediction}
+  \rightarrow
+  \text{error signal}
+  \rightarrow
+  \text{adaptation}.
+\]
+The rest of the module will make each arrow more precise.
+
+\section{Optional exercises}
+
+\begin{optionalexercise}[title={1. Formalise a modern task}]
+Choose one: semantic segmentation, speech recognition, text completion, image generation, recommendation, or image--text retrieval.
+
+State:
+\begin{enumerate}[leftmargin=*]
+  \item the input \(x\);
+  \item the target or learning signal;
+  \item the form of the output;
+  \item whether the task is best described as classification, regression, structured prediction, generative modelling or retrieval;
+  \item one sensible baseline;
+  \item one reason a high training score might fail to imply useful generalisation.
+\end{enumerate}
+\end{optionalexercise}
+
+\begin{optionalexercise}[title={2. A constant predictor}]
+Suppose a binary dataset contains a proportion \(p\) of positive examples.
+
+\begin{enumerate}[leftmargin=*]
+  \item What accuracy is obtained by always predicting the most common class?
+  \item For which values of \(p\) does this baseline exceed \(80\%\)?
+  \item Why does this show that accuracy cannot be interpreted without class proportions?
+\end{enumerate}
+
+Then consider a regression target \(y\). Under squared error the best constant prediction is the mean; under absolute error it is a median. You may prove these statements now if you know the necessary calculus, or return to them after Week~2.
+\end{optionalexercise}
+
+\begin{optionalexercise}[title={3. Same data, different objective}]
+Imagine a dataset of photographs of products, each with a category, price, caption and product ID. Define two tasks that use exactly the same photographs as input but would reward very different internal representations. Explain what information each task encourages the model to preserve.
+\end{optionalexercise}
+
+\begin{optionalexercise}[title={4. PyTorch reading exercise}]
+For the two-layer network shown earlier, identify which objects are data and which are parameters. Use `list(model.parameters())` and print the tensor shapes. Without training the network, predict what will remain unchanged when a new batch \(x\) is passed through the model and what will change.
+\end{optionalexercise}
+
+\section{Chapter summary}
+
+The essential ideas of Week~1 are simple enough to state compactly, but they will govern everything that follows.
+
+A dataset is a finite sample, not reality itself. The learning problem must specify inputs, outputs and the source of its teaching signal. Classification, regression, generation, structured prediction and retrieval ask different kinds of questions even when they share raw data. Supervised, unsupervised and self-supervised learning differ in how the learning signal is obtained.
+
+In supervised learning we will repeatedly write
+\[
+  \dataset=\{(x_i,y_i)\}_{i=1}^{n},
+  \qquad
+  \hat y_i=f_\theta(x_i),
+  \qquad
+  \loss(\theta)=\frac{1}{n}\sum_i
+  \ell(\hat y_i,y_i).
+\]
+Training changes \(\theta\); inference applies the resulting rule; evaluation asks how well it transfers to held-out observations.
+
+And every reported score should provoke one immediate question:
+
+\begin{center}
+  \Large\bfseries Better than what?
+\end{center}
+
+That question is not scepticism for its own sake. It is the beginning of experimental discipline.

@@ -91,4 +91,21 @@ Important recurring ideas to preserve across weeks include:
 - training trajectories rather than only final metrics;
 - distinguishing objective mismatch, optimisation failure, representation failure and generalisation failure.
 
-Use the StoryReasoning architecture-evolution case study selectively as a later source of concrete examples. The case study should support the conceptual order of the module, not determine it.
+Use `ARCHITECTURE_NARRATIVE.md` as the primary StoryReasoning architecture reference from Week 4 onward. It is a pedagogical reorganisation of the system's development, not merely a changelog. The older architecture-evolution document may be consulted for historical detail, but it must not override the narrative's conceptual order.
+
+## Lecture-note conventions
+
+Lecture notes live in `lecture_notes/`, with one LaTeX chapter per teaching week and a separate architecture overview chapter that acts as the running case-study reference.
+
+For each weekly chapter:
+- follow `curriculum/module-map.md` first and use `curriculum/learning-thread.md` to preserve conceptual continuity;
+- aim for roughly **12–15 compiled pages**, favouring clear explanation over encyclopedic coverage;
+- write in a scientific but engaging style: concrete observations, explicit questions, economical mathematics, and mechanistic explanations rather than textbook boilerplate;
+- use the practical experiments as complementary evidence, not material to duplicate;
+- keep optional mathematics or standard coding in clearly marked optional boxes;
+- use **PyTorch** boxes only where code helps connect notation to implementation, and show only the important lines;
+- include a compact **Application to the architecture** box focused on one mechanism or phenomenon relevant to the week's concepts;
+- add figure placeholders only when a figure would genuinely help. Use the shared `\figureaction{...}` placeholder with a real caption and an explicit `ACTION` description; never reference an image file that does not yet exist;
+- introduce terminology after the motivating problem where possible, and protect later weeks from premature detail.
+
+The architecture overview may show the full system at a high level, but weekly chapters should unpack it progressively rather than repeatedly explaining the entire architecture.
