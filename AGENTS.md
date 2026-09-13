@@ -80,6 +80,8 @@ Progressive exposure currently intended:
 
 Week 4 establishes an important boundary for later development: students meet StoryReasoning first through raw-frame floors/metric failures and through an annotation-only character-history subtask. Do **not** introduce a hidden CNN/CLIP encoder merely to enable frame retrieval at this point. Raw-image representation becomes a motivated problem for Week 5. In the Week 4 character task, persistent character IDs are metadata for constructing histories, not predictive input features.
 
+Week 5 introduces the first learned visual component: students build a modest convolutional encoder/autoencoder, train it once by reconstruction, then freeze it and reuse cached latent vectors for simple visual retrieval. Keep the decoder as concise scaffolding around the studied encoder. Retrieval may compare candidate frames by visual similarity, but must **not** introduce a trained next-frame predictor, recurrent sequence model, attention, multimodal fusion or language encoder yet. The intended endpoint is that students can distinguish visual representation from temporal/story reasoning.
+
 A useful exercise pattern is: **provided system → missing/changing component → observable consequence**.
 
 ## Pedagogical continuity
