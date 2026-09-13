@@ -18,8 +18,28 @@ Whenever training is computationally expensive, the first substantial run should
 ## Repository structure
 
 - `curriculum/` — module-level pedagogical design and conceptual progression.
-- `weeks/` — lecture notes and experiments for individual weeks.
-- `templates/` — common structures for lectures and experiments.
+- `lecture_notes/` — the LaTeX lecture notes.
+  - `main.tex` — master document that assembles the full set of notes.
+  - `preamble.tex` — shared packages, notation, and document-wide configuration.
+  - `chapters/weekXX.tex` — one independent source file per teaching week/chapter.
+- `weeks/` — exercise design, prompt sequences, code, and supporting material, created as each week is developed.
+- `templates/` — common structures for lecture chapters and experiments.
 - `shared/` — reusable code, figures, datasets, and utilities when needed.
+- `references.bib` — shared bibliography for the lecture notes and supporting material.
 
-The stable course structure lives on `main`. Substantial weekly development should normally happen on a dedicated branch and be reviewed before merging.
+## Building the lecture notes
+
+Compile from inside `lecture_notes/` so the relative paths to chapters, figures, and the bibliography remain simple:
+
+```bash
+cd lecture_notes
+latexmk -pdf main.tex
+```
+
+The notes use `biblatex` with the `biber` backend. A standard `latexmk` installation should run the required bibliography pass automatically.
+
+Each weekly file is brought into `main.tex` with `\input{chapters/weekXX}`. Weekly development should normally edit the relevant chapter file rather than the master document.
+
+## Development workflow
+
+The stable course structure lives on `main`. Substantial weekly development should normally happen on a dedicated branch and be reviewed before merging. Lecture notes and exercises for the same week should be developed together so that experiments can create the need for theory, and later lecture material can formalise what students observed.
