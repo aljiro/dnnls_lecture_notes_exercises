@@ -18,14 +18,15 @@ Do not read ahead while doing the experiment. Run each prompt, inspect the resul
 
 Copy this into Gemini:
 
-> Create about 30 points with `x` values between -2 and 2 and targets generated approximately from `y = 3x + 2` with a small amount of random noise. Set a fixed seed. Define a linear model `y_hat = w*x + b` with deliberately poor starting values such as `w = -1` and `b = -2`. Plot the data and the current prediction line, draw a few residuals as vertical segments, and report the MSE. Briefly explain the model you created: what `w` changes, what `b` changes, and what one residual represents. Do not train anything yet.
+> Create about 30 points with `x` values between -2 and 2 and targets generated approximately from `y = 3x + 2` with a small amount of random noise. Set a fixed seed. Define a linear model `y_hat = w*x + b` with deliberately poor starting values such as `w = -1` and `b = -2`. Plot the data and the current prediction line, draw a few residuals as vertical segments, and report the MSE. Add two interactive sliders labelled `w` and `b`. When I move either slider, update the prediction line, residual segments, and displayed MSE immediately without regenerating the dataset. Briefly explain the model you created: what `w` changes, what `b` changes, and what one residual represents. Do not train anything yet.
 
 ### Questions
 
 1. In what way is the current line wrong?
 2. What geometric effect does changing `w` have?
 3. What geometric effect does changing `b` have?
-4. Why do we need a single loss value if there are many residuals?
+4. Can you use the sliders to reduce the loss manually?
+5. Why do we need a single loss value if there are many residuals?
 
 ---
 
@@ -57,15 +58,16 @@ Copy this into Gemini:
 
 ## Prompt 4
 
-> Starting again from `w = -1` and `b = -2`, implement gradient descent for this linear model using the explicit analytical gradients of MSE with respect to `w` and `b`. Set `learning_rate = 0.1` near the top so I can change it later. Do not use an optimizer library. Record `w`, `b`, and loss at every step for about 50 steps. Plot the path through the loss contour, the loss over steps, and several snapshots of the fitted line. Briefly explain one complete update: prediction, error, gradient, parameter change.
+> Starting again from `w = -1` and `b = -2`, implement gradient descent for this linear model using the explicit analytical gradients of MSE with respect to `w` and `b`. Set `learning_rate = 0.1` near the top so I can change it later. Do not use an optimizer library. Record `w`, `b`, and loss at every step for about 50 steps. Plot the path through the loss contour, the loss over steps, and several snapshots of the fitted line. Then create a simple animation or play control using the saved trajectory: as the step advances, show the current fitted line and the corresponding point moving through `(w, b)` space. Do not retrain during the animation. Briefly explain one complete update: prediction, error, gradient, parameter change.
 
 ### Questions
 
 1. Did the parameter path move roughly downhill?
 2. Did the loss decrease every single step?
 3. What happened to the prediction line as the parameters changed?
-4. What information did gradient descent use that the perceptron from Week 1 did not?
-5. At what point would you say the model has effectively stopped improving?
+4. What does the animation make easier to see than the final line alone?
+5. What information did gradient descent use that the perceptron from Week 1 did not?
+6. At what point would you say the model has effectively stopped improving?
 
 ---
 
