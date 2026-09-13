@@ -86,6 +86,8 @@ Week 6 focuses on evidence about representations and predictions. Students may u
 
 Week 7 introduces language representations and explicit sequence memory. Students may tokenise text, train small RNN/GRU/LSTM models, build an autoregressive language model, diagnose teacher forcing and condition ignoring, and use a frozen sentence encoder plus a small GRU over StoryReasoning descriptions. Keep the StoryReasoning capstone **text-only**: do not fuse image and text representations yet. Attention/query-key-value may be motivated conceptually by the bottleneck of one recurrent summary, but full self-attention, cross-attention, multi-head attention and transformer implementation remain for Week 9.
 
+Week 8 introduces generative distributions. Students may build deterministic autoencoders, VAEs, conditional VAEs and a tiny diffusion-style denoiser; evaluate reconstruction, KL, fidelity/diversity, posterior/prior mismatch and best-of-K; and compare these mechanisms conceptually with GANs. For StoryReasoning, inherited frozen visual embeddings and a small recurrent context summary may be used so students build only the new stochastic prior/posterior mechanism. Keep that capstone in visual latent space unless a decoder is explicitly supplied; do not silently add attention or full image-text fusion before Week 9. Best-of-K results must always report K, and negative sampling results should be kept rather than forced into the expected narrative.
+
 A useful exercise pattern is: **provided system → missing/changing component → observable consequence**.
 
 ## Pedagogical continuity
