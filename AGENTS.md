@@ -84,6 +84,8 @@ Week 5 introduces the first learned visual component: students build a modest co
 
 Week 6 focuses on evidence about representations and predictions. Students may use gradient/Integrated-Gradient attribution, perturbation/permutation controls, local surrogates, counterfactuals, probes and interventions. A frozen pretrained visual encoder may be introduced for transfer/probing on StoryReasoning, but probe performance must be described as **decodability**, not automatically as causal use or mechanistic understanding. Keep sequence memory, attention and multimodal fusion for later weeks; Week 6 should make students sceptical of explanations that are not tested against controls.
 
+Week 7 introduces language representations and explicit sequence memory. Students may tokenise text, train small RNN/GRU/LSTM models, build an autoregressive language model, diagnose teacher forcing and condition ignoring, and use a frozen sentence encoder plus a small GRU over StoryReasoning descriptions. Keep the StoryReasoning capstone **text-only**: do not fuse image and text representations yet. Attention/query-key-value may be motivated conceptually by the bottleneck of one recurrent summary, but full self-attention, cross-attention, multi-head attention and transformer implementation remain for Week 9.
+
 A useful exercise pattern is: **provided system → missing/changing component → observable consequence**.
 
 ## Pedagogical continuity
