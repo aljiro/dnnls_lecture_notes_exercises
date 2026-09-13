@@ -2,6 +2,8 @@
 
 **Dataset:** MNIST training set: 60,000 grayscale images of handwritten digits 0–9. The notebook will download it automatically the first time it is needed.
 
+**Key concepts:** sampling, sample size, class proportions, sampling variability, uncertainty, representativeness, training/validation/test data.
+
 **Expected computational budget:** Very light. Apart from the initial dataset download, each prompt should run in seconds to well under a minute. No model training is involved.
 
 **Recommended runtime:** **CPU.** A GPU is not needed for this experiment and will not provide a meaningful advantage.
