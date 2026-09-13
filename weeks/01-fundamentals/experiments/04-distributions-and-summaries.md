@@ -2,6 +2,8 @@
 
 **Dataset:** MNIST training set, focusing initially on digits **1** and **8**. Each image is reduced to one simple measurement: its mean pixel intensity (roughly, how much white "ink" is present).
 
+**Key concepts:** distributions, pooling, mean, median, standard deviation, quartiles, class-conditional distributions, overlap, one-dimensional features, threshold classification, outliers.
+
 **Expected computational budget:** Very small. Loading MNIST is the main overhead; all measurements and plots should take only seconds.
 
 **Recommended runtime:** **CPU.** A GPU is unnecessary for this experiment.
@@ -57,7 +59,7 @@ Copy this into Gemini:
 
 ## Prompt 4
 
-> Use only the image mean as a feature. Create the simplest possible rule for distinguishing digit 1 from digit 8: put a threshold halfway between the two class medians, and predict one class on one side and the other class on the other side. Report the accuracy and a 2x2 confusion matrix. Then show several misclassified images from both classes, including some close to the threshold. Do not train a more sophisticated classifier.
+> Use only the image mean as a feature. Create the simplest possible rule for distinguishing digit 1 from digit 8: put a threshold halfway between the two class medians, and predict one class on one side and the other class on the other side. Report the accuracy and a 2x2 confusion matrix. Then show several misclassified images from both classes, including some close to the threshold. Do not train a more sophisticated classifier. After creating the rule, briefly explain the classifier you chose: what the input feature is, where the threshold comes from, how you decide which digit belongs on each side of it, and why this classifier can only create one split on the number line.
 
 ### Questions
 
