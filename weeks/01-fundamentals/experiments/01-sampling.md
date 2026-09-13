@@ -1,5 +1,11 @@
 # Investigation 1 — How much can a sample fool you?
 
+**Dataset:** MNIST training set: 60,000 grayscale images of handwritten digits 0–9. The notebook will download it automatically the first time it is needed.
+
+**Expected computational budget:** Very light. Apart from the initial dataset download, each investigation should run in seconds to well under a minute. No model training is involved.
+
+**Recommended runtime:** **CPU.** A GPU is not needed for this investigation and will not provide a meaningful advantage.
+
 > **Copy and paste these queries to Gemini in your Colab and answer the questions.**
 
 Do not read ahead while doing the investigation. Run each prompt, inspect the result, and answer the questions before continuing.
