@@ -37,7 +37,7 @@ Do not reveal the hidden objective too early. Prefer the learning sequence:
 Each week has a notebook-level Gemini instruction file. Keep the **entire instruction file safely below 4,500 characters**; aim around 3,500–4,000 and check the actual file size after editing. Preserve one-investigation-per-prompt discipline, global investigation numbering, simple implementations, concise student-facing explanations, and the week's conceptual boundaries.
 
 Allowed response forms for one prompt are:
-1. one executable code cell;
+1. one executable Python code cell;
 2. one **short** explanatory Markdown cell followed by one code cell; or
 3. one Markdown-only cell when no computation is needed.
 
@@ -77,6 +77,8 @@ Progressive exposure currently intended:
 - Week 4: first simplified introduction of the assessment task/architecture and system diagnostics.
 - Later weeks: expose or replace one relevant component at a time (visual encoder, language encoder, attention/fusion, generative components, etc.).
 - Assessment: provide a canonical full architecture so all students start from the same system; ask them to diagnose, modify and justify components rather than regenerate the whole model.
+
+Week 4 establishes an important boundary for later development: students meet StoryReasoning first through raw-frame floors/metric failures and through an annotation-only character-history subtask. Do **not** introduce a hidden CNN/CLIP encoder merely to enable frame retrieval at this point. Raw-image representation becomes a motivated problem for Week 5. In the Week 4 character task, persistent character IDs are metadata for constructing histories, not predictive input features.
 
 A useful exercise pattern is: **provided system → missing/changing component → observable consequence**.
 
