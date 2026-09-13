@@ -1,5 +1,11 @@
 # Investigation 3 — Can a machine learn only from its mistakes?
 
+**Dataset:** No external dataset. The investigation creates a tiny synthetic 2D binary-classification dataset of about 20 points directly in the notebook.
+
+**Expected computational budget:** Negligible. Training the simple learner and producing the plots should take only seconds.
+
+**Recommended runtime:** **CPU.** A GPU is unnecessary for this investigation and would add complexity without a useful speed benefit.
+
 > **Copy and paste these queries to Gemini in your Colab and answer the questions.**
 
 Do not read ahead while doing the investigation. Run each prompt, inspect the result, and answer the questions before continuing.
