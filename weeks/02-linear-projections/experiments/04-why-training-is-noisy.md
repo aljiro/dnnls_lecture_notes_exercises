@@ -18,16 +18,15 @@ Do not read ahead while doing the experiment. Run each prompt, inspect the resul
 
 Copy this into Gemini:
 
-> Create 400 regression examples with `x` values between -3 and 3 and noisy targets approximately following `y = 3x + 2`. Use a fixed seed. Start a linear model `y_hat = w*x + b` from deliberately poor parameters. At those same parameters, calculate the exact MSE gradient using all 400 examples. Then calculate gradient estimates from 30 different randomly selected single examples and from 30 different random mini-batches of 16 examples. Plot the resulting gradient vectors in `(dw, db)` space, marking the full-data gradient clearly. Add an interactive batch-size control with useful values such as `1`, `4`, `16`, `64`, and `400`. When I change it, redraw 30 gradient estimates for that batch size around the same full-data gradient, using reproducible random batches. Do not train the model when the control moves. Keep the gradient calculation explicit rather than using an optimizer library. Briefly explain what data each kind of gradient uses.
+> Create 400 regression examples with `x` values between -3 and 3 and noisy targets approximately following `y = 3x + 2`. Use a fixed seed. Start a linear model `y_hat = w*x + b` from deliberately poor parameters. At those same parameters, calculate the exact MSE gradient using all 400 examples. Then calculate gradient estimates from 30 different randomly selected single examples and from 30 different random mini-batches. Set `batch_size = 16` near the top of the cell so I can easily change it later. Plot the resulting gradient vectors in `(dw, db)` space, marking the full-data gradient clearly. Keep the gradient calculation explicit rather than using an optimizer library. Briefly explain what data each of the three kinds of gradient uses.
 
 ### Questions
 
 1. Do all single-example gradients point in exactly the same direction?
 2. Are the mini-batch gradients more tightly grouped than the single-example gradients?
 3. Is the full-data gradient inside or near the cloud of estimates?
-4. What happens to the spread of the cloud as you increase the batch size?
-5. What seems to happen to the reliability of the gradient estimate as more examples are included?
-6. Why might using every example for every update be unnecessary?
+4. What seems to happen to the reliability of the gradient estimate when more examples are included?
+5. Why might using every example for every update be unnecessary?
 
 ---
 
@@ -47,7 +46,7 @@ Copy this into Gemini:
 
 ## Prompt 3
 
-> Repeat the mini-batch training with batch sizes `1`, `4`, `16`, `64`, and the full dataset. For each batch size, calculate the number of updates per epoch and train for the same 20 epochs from identical starting parameters. Plot only the epoch-end loss curves so the overall trend is easy to compare. Also print a small table containing batch size, updates per epoch, total updates, and final loss. Keep the learning rate fixed for this experiment.
+> Repeat the mini-batch training with batch sizes `1`, `4`, `16`, `64`, and the full dataset. Put these batch sizes in one clearly marked list near the top of the cell so I can edit them later. For each batch size, calculate the number of updates per epoch and train for the same 20 epochs from identical starting parameters. Plot only the epoch-end loss curves so the overall trend is easy to compare. Also print a small table containing batch size, updates per epoch, total updates, and final loss. Keep the learning rate fixed for this experiment.
 
 ### Questions
 
