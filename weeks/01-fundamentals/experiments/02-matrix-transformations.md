@@ -2,6 +2,8 @@
 
 **Dataset:** No external dataset. The experiment generates a tiny synthetic 2D shape and small 2D point clouds directly in the notebook.
 
+**Key concepts:** matrix multiplication, linear transformations, coordinates, composition, order of operations, projection, information loss, invertibility, representation.
+
 **Expected computational budget:** Negligible. Each prompt should run almost instantly; the work is simple matrix multiplication and plotting.
 
 **Recommended runtime:** **CPU.** A GPU is unnecessary for this experiment.
@@ -72,7 +74,7 @@ Then copy:
 
 ## Prompt 5
 
-> Create two small clouds of 2D points belonging to two classes that overlap when viewed in the original coordinates. Find or construct one simple 2x2 linear transformation that makes the separation between the two classes visually clearer, without training a classifier. Plot the clouds before and after the transformation and show the matrix you used.
+> Create two small clouds of 2D points belonging to two classes that overlap when viewed in the original coordinates. Find or construct one simple 2x2 linear transformation that makes the separation between the two classes visually clearer, without training a classifier. Plot the clouds before and after the transformation and show the matrix you used. Briefly explain why you chose that transformation and what geometric property of the clouds it changes.
 
 ### Questions
 
