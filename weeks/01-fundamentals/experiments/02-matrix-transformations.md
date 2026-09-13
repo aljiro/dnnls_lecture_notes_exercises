@@ -1,5 +1,11 @@
 # Investigation 2 — What does a matrix do to a world?
 
+**Dataset:** No external dataset. The investigation generates a tiny synthetic 2D shape and small 2D point clouds directly in the notebook.
+
+**Expected computational budget:** Negligible. Each prompt should run almost instantly; the work is simple matrix multiplication and plotting.
+
+**Recommended runtime:** **CPU.** A GPU is unnecessary for this investigation.
+
 > **Copy and paste these queries to Gemini in your Colab and answer the questions.**
 
 Do not read ahead while doing the investigation. Run each prompt, inspect the result, and answer the questions before continuing.
