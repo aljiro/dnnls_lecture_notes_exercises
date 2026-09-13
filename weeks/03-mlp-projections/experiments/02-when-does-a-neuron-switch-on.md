@@ -1,0 +1,115 @@
+# Experiment 2 — When does a neuron switch on?
+
+**Dataset:** No external dataset. The experiment uses simple scalar inputs and a small 2D grid so the behaviour of individual neurons can be inspected directly.
+
+**Key concepts:** neuron, weighted sum, bias, pre-activation, activation function, step, sigmoid, tanh, ReLU, non-linearity, local sensitivity.
+
+**Expected computational budget:** Negligible. Everything is direct calculation and plotting.
+
+**Recommended runtime:** **CPU.** A GPU is unnecessary for this experiment.
+
+> **Copy and paste these queries to Gemini in your Colab and answer the questions.**
+
+Do not read ahead while doing the experiment. Run each prompt, inspect the result, and answer the questions before continuing.
+
+---
+
+## Prompt 1
+
+Copy this into Gemini:
+
+> Create a dense range of scalar values `z` from about -6 to 6. Plot four activation functions on aligned axes: a binary step at zero, sigmoid, tanh, and ReLU. Add one interactive slider for `z` that moves a vertical marker across all four plots and displays the four current outputs. Keep the formulas explicit in the code rather than calling a neural-network layer. Briefly explain that `z` is the neuron's weighted sum plus bias before the activation, but do not yet discuss which activation is "best".
+
+### Questions
+
+1. Which activation changes abruptly?
+2. Which activations change smoothly?
+3. Which activation produces exactly zero for all negative inputs?
+4. Which outputs are bounded to a limited range?
+5. As you move the slider, where does each activation change most visibly?
+
+---
+
+## Prompt 2
+
+> Now define one scalar-input neuron with `z = w*x + b`, using `w = 2.0` and `b = -1.0`. Plot `z` as a function of `x`, then plot the output of the same neuron using step, sigmoid, tanh, and ReLU activations. Mark the input value where `z = 0`. Keep `w` and `b` as clearly labelled variables near the top of the cell. Briefly explain geometrically what changing `w` and `b` does before the activation is applied.
+
+### Questions
+
+1. At what input does this neuron cross `z = 0`?
+2. Which activations make that crossing look like a hard switch?
+3. Which make it gradual?
+4. Does changing the activation change the weighted sum `z` itself?
+5. What part of the neuron's behaviour comes from the linear projection, and what part comes from the activation?
+
+---
+
+## Prompt 3
+
+> Create a small 2D input grid and one neuron with a weighted sum `z = w1*x1 + w2*x2 + b`. Choose simple non-axis-aligned weights. For each of the four activations, show a heatmap of the neuron's output over the same 2D plane and draw the line where `z = 0`. Use identical weights and bias in all four cases. Briefly explain what remains the same across the four neurons and what the activation changes.
+
+### Questions
+
+1. Is the line `z = 0` different for the four activations?
+2. How does the response on either side of the line differ?
+3. Which activation preserves the magnitude of positive `z` most directly?
+4. Why can two neurons with identical weights behave differently after the activation?
+
+---
+
+## Prompt 4
+
+> Using the same 2D grid, construct a tiny hidden layer with two neurons whose straight `z = 0` lines cross the plane at different angles. Pass both hidden outputs into one fixed linear output `s = a1*h1 + a2*h2 + c`. Compare the final output surface when the hidden activation is identity versus ReLU, keeping every weight and bias identical. Plot contour maps of `s` for both cases. Briefly point out where the ReLU version changes its linear behaviour across different regions of the input plane.
+
+### Questions
+
+1. Is the identity version globally linear?
+2. Does the ReLU version behave like one single plane everywhere?
+3. Where do the changes in behaviour occur?
+4. How can individually simple neurons create a piecewise-linear computation when combined?
+5. Why does this help explain the result of the previous XOR experiment?
+
+---
+
+## Prompt 5
+
+> Return to the scalar activation functions from Prompt 1. Estimate each activation's local derivative numerically with a small centred finite difference at several `z` values such as `-4`, `-1`, `0`, `1`, and `4`. Plot the estimated derivative curves and print a small table of the sampled values. For the step function, make clear that the ordinary derivative is zero away from the jump and not well behaved at the jump. Do not introduce backpropagation yet; describe these derivatives only as local sensitivity.
+
+### Questions
+
+1. Which activations are highly sensitive near `z = 0`?
+2. Where does sigmoid become relatively insensitive to changes in `z`?
+3. Where does tanh become relatively insensitive?
+4. What is ReLU's local sensitivity for positive and negative `z`?
+5. Why might local sensitivity matter if we later want to know how changing an earlier parameter affects the final loss?
+
+---
+
+## Try it yourself manually
+
+Without asking Gemini to change the code, return to the **code cell generated by Prompt 2 in this experiment**. Change `b = -1.0` to another value while keeping `w` fixed.
+
+Before rerunning, predict where the `z = 0` crossing will move.
+
+- Did the activation curves shift in the direction you expected?
+- Restore the bias and change `w` instead.
+- Which change mainly shifts the response, and which changes how quickly `z` varies with `x`?
+
+---
+
+## Reveal: what was this experiment really about?
+
+The objective was to separate two ideas that are often compressed into the word **neuron**: a linear projection computes a weighted sum, and an **activation function** transforms that value nonlinearly.
+
+The activation does not change which weighted sum was computed, but it changes how the neuron responds to that sum. Once several activated neurons are composed, the network can behave differently in different regions of the input space instead of collapsing to one global linear transformation.
+
+Now ask Gemini:
+
+> We have inspected step, sigmoid, tanh and ReLU as transformations of the same pre-activation value. Discuss with me what each activation changes, what it leaves unchanged, and why a nonlinear activation between linear layers changes the expressive power of the whole network. Use the scalar curves, 2D heatmaps and local-sensitivity plots from this experiment. Do not turn this into a list of activation-function definitions.
+
+### Final discussion questions
+
+1. What is the difference between a pre-activation and an activation?
+2. Why does the choice of activation matter even when the weights are identical?
+3. How can ReLU produce a network that is linear in pieces but not globally linear?
+4. Why are local derivatives a natural bridge from forward computation to learning?
