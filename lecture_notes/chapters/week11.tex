@@ -1,2 +1,432 @@
-\chapter{Learning During Inference and Test-Time Computation}
+\chapter{Optional extension: learning during inference}
 \label{chap:week11}
+
+The compulsory module ended in Week~10 with a deliberately conservative claim: before changing a learning system, identify what information is available, what computation is possible, what objective rewards, what representation has emerged, and what evidence supports the interpretation. That discipline remains useful when the boundary between training and inference becomes less clear.
+
+The traditional picture is simple. During training, parameters change. During inference, parameters are fixed and the trained function is applied to a new input. Much of machine learning still fits this description.
+
+Modern systems complicate it. A model can change its behaviour because demonstrations were added to a prompt. It can retrieve a document that was written after the model was trained. It can update a small adapter using the current unlabelled test batch. It can sample ten candidate answers and spend extra computation selecting one. In all four cases the deployed system behaves differently, but different things have changed.
+
+This optional chapter asks a precise question:
+\begin{center}
+  \emph{when behaviour changes at inference time, where did the new information or adaptation live?}
+\end{center}
+
+\begin{keyidea}
+``Learning during inference'' is not one mechanism. To reason clearly, ask what changes: the input context, transient activations, an external memory, persistent parameters or state, or simply the amount of computation performed before answering.
+\end{keyidea}
+
+This distinction prevents several common confusions. In-context learning does not normally require a gradient update. Retrieval does not move knowledge into the model's weights. Test-time adaptation really can update parameters or state. Search and reranking may improve an answer while leaving both knowledge and parameters unchanged.
+
+\section{The old boundary: training changes parameters, inference uses them}
+
+Return to the notation from Week~1. A parameterised model produces
+\[
+  \hat{y}=f_\theta(x).
+\]
+During ordinary training, the dataset and loss produce updates such as
+\[
+  \theta_{t+1}=\theta_t-\eta\nabla_\theta\loss(\theta_t).
+\]
+After training finishes, inference uses a fixed parameter vector \(\theta^*\):
+\[
+  \hat{y}=f_{\theta^*}(x).
+\]
+Nothing about the model changes because one particular test example arrived.
+
+This separation has important engineering advantages. A deployed model is reproducible, a prediction cannot contaminate the next prediction through hidden parameter drift, and evaluation is conceptually straightforward: the test set measures a fixed learned rule.
+
+But even a fixed function can show highly adaptive behaviour if its input includes enough temporary information. The function
+\[
+  f_{\theta^*}(x,c)
+\]
+may respond differently as the context \(c\) changes, despite the fact that \(\theta^*\) never moves. Week~9 already gave us the computational mechanism: attention can route different parts of a context toward different queries \parencite{vaswani2017}.
+
+The question is therefore not simply whether the output changed. Outputs always change with inputs. We need to distinguish several places where task-specific information can reside.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.22\textwidth}p{0.68\textwidth}}
+\toprule
+Mechanism & What changes, and what can fail? \\
+\midrule
+In-context learning & The prompt/context and transient activations change; the parameters do not. Demonstrations can be ignored, misread or contradictory. \\
+External retrieval & The retrieved evidence changes while model weights remain fixed; relevant items can be absent, missed or poorly used. \\
+Test-time adaptation & Selected parameters, normalisation state or adapter state change; a proxy objective can adapt in the wrong direction. \\
+Search/reranking & The number and ordering of candidate computations change; the correct candidate may never be proposed or may be misranked. \\
+\bottomrule
+\end{tabular}
+\caption{Several mechanisms can make inference adaptive, but the location and persistence of the change are different.}
+\label{tab:week11-taxonomy}
+\end{table}
+
+The rest of the chapter develops these four cases.
+
+\section{In-context learning: task information in the input}
+
+Suppose a model receives examples of a temporary mapping:
+\[
+  a\mapsto 2,\qquad c\mapsto 4,\qquad b\mapsto 1,
+\]
+followed by the query ``\(c\mapsto ?\)''. On another example, the demonstrations may instead define
+\[
+  a\mapsto 1,\qquad c\mapsto 3,\qquad b\mapsto 4.
+\]
+A global table stored in the weights cannot answer both episodes correctly. The current mapping must be inferred from the context.
+
+A sufficiently trained sequence model can learn a \emph{procedure} that uses demonstrations rather than memorising one permanent mapping. During training, its parameters acquire a rule for processing episodes. During inference, the episode-specific information is supplied in the context.
+
+This behaviour is usually called \emph{in-context learning}. The key operational property is:
+\begin{center}
+  \emph{the behaviour adapts to demonstrations while the model parameters remain fixed.}
+\end{center}
+
+The word ``learning'' can be useful, but it should not erase the distinction from parameter learning. A model that changes its answer after reading a new demonstration has changed its internal activations, not necessarily its weights.
+
+\subsection{What was learned during training?}
+
+If the episode-specific mapping changes randomly from one episode to another, training cannot encode the particular validation mapping. What it can encode is a strategy:
+\begin{enumerate}[leftmargin=*]
+  \item identify the query;
+  \item find demonstrations relevant to that query;
+  \item infer or copy the temporary relationship;
+  \item produce the corresponding output.
+\end{enumerate}
+
+This resembles the distinction between an algorithm and its working data. The weights can store a general procedure; the context supplies instance-specific state on which that procedure operates.
+
+A useful experiment therefore does not ask only whether the model is accurate. It changes the demonstrations while holding the query fixed. If the prediction tracks the changed mapping and a parameter checksum remains identical, we have evidence that the temporary task information lives in the forward-pass context rather than in a weight update.
+
+\begin{checkpointbox}
+A frozen transformer gives label B for a query. You change one demonstration in the prompt and it now gives label D. The parameter tensors are bit-for-bit identical before and after both forward passes.
+
+What changed? The model's learned procedure did not change. The temporary information presented to that procedure changed, producing different activations and therefore a different output.
+\end{checkpointbox}
+
+\subsection{More context is not automatically better}
+
+A larger context window creates capacity to supply more demonstrations, but useful information and total information are not the same thing. Additional examples may be irrelevant, contradictory or simply outside the distribution of context lengths seen during training.
+
+This repeats a course-wide theme. More capacity does not automatically solve the intended problem. The question is whether the mechanism can identify which information matters.
+
+\section{An induction-style hypothesis: retrieve a pattern, then copy}
+
+Week~9 described attention as content-dependent routing. This gives a simple mechanistic hypothesis for some in-context behaviour.
+
+Imagine a sequence containing repeated keys:
+\[
+  k_1,\ell_1,\;k_2,\ell_2,\;k_3,\ell_3,\;k_2,\;?
+\]
+The final \(k_2\) resembles an earlier \(k_2\). A query derived from the current position can attend toward that earlier pattern. Information associated with the following label \(\ell_2\) can then influence the prediction.
+
+This family of retrieve-and-copy patterns is often discussed under the heading of \emph{induction-style} behaviour. The important point for this module is not the name of a particular attention head. It is the scientific structure of the claim:
+\begin{enumerate}[leftmargin=*]
+  \item repeated content creates a candidate relation;
+  \item attention or another routing mechanism can connect the query to an earlier occurrence;
+  \item the output should change when the retrieved information is causally altered.
+\end{enumerate}
+
+An attention heatmap supports only the second step weakly. If a head attends strongly to the matching example, we know how that head mixed values. We do not yet know whether the final output depends on the information we think it retrieved.
+
+A stronger test changes the label paired with the matching demonstration while keeping other tokens fixed. If the output follows the substituted label, the mechanistic interpretation gains causal support. This is exactly the methodological distinction established in Week~6: observation suggests a hypothesis; intervention tests it.
+
+\subsection{Content and position can interact}
+
+A model may prefer recent demonstrations even when an older demonstration is an equally good content match. This is not paradoxical. Positional representations and content similarity coexist inside the attention computation.
+
+Conflicting demonstrations are therefore informative. If the same key is paired with two different labels at different positions, the model must resolve incompatible evidence. Does the later example dominate? Does confidence collapse? Does one head retrieve by content while another expresses a positional prior?
+
+The result need not be a perfect symbolic algorithm. Neural sequence models learn statistical procedures shaped by their training distribution. A robust mechanistic claim should describe the behaviour actually measured, not promote one attractive pattern into a universal theory of in-context learning.
+
+\begin{figure}[ht]
+  \figureaction{Create a small sequence diagram for an episodic key--label task. Show three demonstration pairs followed by a repeated query key. Draw an attention-style arrow from the query back to the matching earlier key and a second arrow carrying the neighbouring label information toward the output. Beside it, show a causal intervention where only that earlier label is changed and the predicted label changes, while model weights remain fixed.}
+  \caption{An induction-style retrieve-and-copy hypothesis becomes more convincing when an intervention on the retrieved information changes the output, not merely when an attention map looks suggestive.}
+  \label{fig:week11-induction}
+\end{figure}
+
+\section{External memory: knowledge outside the parameters}
+
+A different strategy is to keep information in a store that is explicitly separate from the model. The store might contain documents, examples, images, database records or embeddings.
+
+A basic retrieval-augmented system has three stages:
+\begin{equation}
+  \text{query} \longrightarrow \text{retrieve} \longrightarrow \text{use retrieved information}.
+  \label{eq:week11-rag-pipeline}
+\end{equation}
+
+The query stage maps the current request into a representation suitable for search. The retrieval stage ranks candidate memory items. The final stage uses one or more retrieved items to produce an answer.
+
+The retrieval representation can itself come from a pretrained encoder. Week~9 used contrastive image--text representations; a frozen sentence encoder plays the same role for document search. Pretraining supplies a geometry in which semantic neighbourhoods are useful even before the task-specific memory is constructed \parencite{radford2021clip}.
+
+\subsection{Parametric and non-parametric knowledge}
+
+It is useful to distinguish two forms of stored information.
+
+\emph{Parametric knowledge} is encoded in learned parameters. Updating it normally requires some form of further training or parameter edit.
+
+\emph{External or non-parametric memory} is stored outside the model and can often be edited independently. If a document says that a fictional city has a blue flag and the fact changes tomorrow, we can replace the document and update the index without retraining the language model.
+
+This separation is attractive for changing knowledge, provenance and access control. It also creates a new systems boundary. The correct fact can exist in memory and still fail to influence the answer because:
+\begin{itemize}[leftmargin=*]
+  \item the query representation did not retrieve it;
+  \item a distractor ranked above it;
+  \item the retrieval depth \(k\) was too small;
+  \item the correct item was retrieved but the downstream model ignored or misinterpreted it.
+\end{itemize}
+
+A retrieval-augmented system should therefore measure retrieval separately from final task performance. End-to-end accuracy alone cannot tell us whether the search failed or the reader failed.
+
+\begin{figure}[ht]
+  \figureaction{Draw a retrieval-augmented pipeline with a user query entering a query encoder, a vector search over an editable external memory, top-k retrieved items entering a downstream reader/generator, and a final answer. Mark model parameters and external memory as separate stores. Show an edit to one memory document changing a later answer without changing the model weights.}
+  \caption{External retrieval separates learned search/representation machinery from an editable store of task information. This improves updateability but introduces retrieval as a new failure point.}
+  \label{fig:week11-rag}
+\end{figure}
+
+\subsection{Retrieval depth is a computational choice}
+
+Increasing \(k\) often improves the probability that the relevant item appears somewhere in the retrieved set. But returning more items does not guarantee that the downstream computation can use them well.
+
+For a top-1 reader, retrieving ten documents is useless if the reader still consumes only the first. For a generator that reads all ten, larger \(k\) increases context length and may introduce misleading evidence. Retrieval depth therefore trades recall, latency, cost and downstream difficulty.
+
+This already begins to blur into test-time computation: the model weights stay fixed, but we spend more work per query.
+
+\section{Test-time adaptation: parameters can change after deployment}
+
+In-context learning changes inputs and activations. Retrieval changes external memory and the evidence supplied to the model. Test-time adaptation goes further: some learned state is actually updated after the conventional training phase has ended.
+
+Suppose a classifier was trained on source distribution \(p_{\mathrm{src}}(x,y)\), but deployment data come from a shifted distribution \(p_{\mathrm{tgt}}(x,y)\). The class semantics may be unchanged even though the input statistics differ because of a new sensor, lighting condition, scanner or acquisition process.
+
+One response is to insert a small adapter \(g_\phi\) before a frozen classifier:
+\[
+  \hat{y}=f_{\theta^*}(g_\phi(x)).
+\]
+At deployment, \(\theta^*\) remains fixed while \(\phi\) is updated using an unsupervised or self-supervised objective computed from target inputs.
+
+The essential constraint is that a genuine unsupervised test-time update cannot use the hidden target labels that will later be used to report accuracy.
+
+\subsection{A proxy objective carries assumptions}
+
+Imagine adapting a simple affine transform
+\[
+  g_\phi(\vect{x})=\mat{A}\vect{x}+\vect{b}
+\]
+so that the mean and covariance of adapted target examples resemble stored source statistics. A schematic objective is
+\begin{equation}
+\begin{split}
+  \loss_{\mathrm{adapt}}
+  ={}& \|\vect{\mu}_{\mathrm{tgt}}(\phi)-\vect{\mu}_{\mathrm{src}}\|_2^2 \\
+     &+ \lambda\|\mat{C}_{\mathrm{tgt}}(\phi)-\mat{C}_{\mathrm{src}}\|_F^2
+      + \gamma R(\phi).
+\end{split}
+\label{eq:week11-adaptation}
+\end{equation}
+The regulariser \(R(\phi)\) can discourage an unnecessarily large departure from the identity transformation.
+
+If the deployment shift really is a global coordinate distortion, matching source statistics may help recover the coordinate system on which the classifier was trained. But the same objective can fail under class-prior shift. If one class becomes much more common, the target mean and covariance change for a legitimate semantic reason. Forcing them back toward source statistics may damage the class structure.
+
+This returns directly to Week~2: the objective is a specification. An adaptation loss does not know why statistics changed. It only knows which numerical difference it was told to reduce.
+
+\begin{pytorchbox}{a tiny test-time adapter update}
+# base_model is frozen; target_x is unlabelled
+for p in base_model.parameters():
+    p.requires_grad_(False)
+
+A = nn.Parameter(torch.eye(d))
+b = nn.Parameter(torch.zeros(d))
+opt = torch.optim.Adam([A, b], lr=1e-2)
+
+for _ in range(adapt_steps):
+    x_adapt = target_x @ A.T + b
+    loss = moment_matching_loss(x_adapt, source_stats)
+    opt.zero_grad()
+    loss.backward()
+    opt.step()
+\end{pytorchbox}
+
+The code contains a genuine optimisation loop during deployment. That is the decisive difference from in-context learning.
+
+\subsection{Adaptation creates state and persistence questions}
+
+Once deployed parameters can change, several new design questions appear:
+\begin{itemize}[leftmargin=*]
+  \item Is the adaptation reset for every batch, user or episode?
+  \item Does one test example affect predictions on later examples?
+  \item Can corrupted inputs poison the adapted state?
+  \item Which parameters are allowed to move?
+  \item Can the system recover the original source behaviour?
+  \item What signal tells us when adaptation should stop?
+\end{itemize}
+
+A decreasing unsupervised adaptation loss is not sufficient evidence of success. The proxy may continue improving after task accuracy peaks. This is the same separation between training objective and evaluation metric that has followed us throughout the module.
+
+\begin{checkpointbox}
+A test-time adapter reduces its unsupervised entropy/moment-matching objective on every deployment batch. On a labelled audit set, task accuracy first improves and then falls as adaptation continues.
+
+Has optimisation failed? Not necessarily. The optimiser is succeeding on the proxy objective. The scientific problem is that further optimisation no longer aligns with the external task metric.
+\end{checkpointbox}
+
+\section{Test-time compute: inference need not be one forward pass}
+
+The simplest deployed model performs one forward pass and returns its output. But nothing in the definition of inference requires that restriction.
+
+A system can instead:
+\begin{itemize}[leftmargin=*]
+  \item sample several candidate outputs;
+  \item retrieve many candidates and rerank a smaller subset;
+  \item verify proposed answers with a second model or score;
+  \item branch over alternative intermediate decisions;
+  \item allocate more computation to uncertain examples;
+  \item stop early when confidence is already sufficient.
+\end{itemize}
+
+Here the model may remain completely frozen. What changes is the computation budget and the policy for allocating it.
+
+\subsection{Sampling and selection}
+
+Week~8 introduced best-of-\(K\) as an evaluation idea. At inference time the same structure can become a decision procedure:
+\begin{enumerate}[leftmargin=*]
+  \item generate \(K\) candidates \(y^{(1)},\ldots,y^{(K)}\);
+  \item assign each candidate a verification or utility score \(v(y^{(k)},x)\);
+  \item return the highest-scoring candidate.
+\end{enumerate}
+
+Larger \(K\) creates more opportunities to discover a strong candidate, but only if the proposal distribution sometimes generates one and the verifier can recognise it. Search cannot rescue a candidate that was never proposed.
+
+The compute-quality curve therefore depends on at least two mechanisms: candidate recall and candidate ranking.
+
+\subsection{Two-stage retrieval and reranking}
+
+A common systems pattern is to use a cheap score over a large memory, keep the top \(M\), then spend a more expensive score only on those candidates.
+
+Let \(N\) be the full candidate count. A one-stage expensive method costs roughly \(N\) expensive score evaluations. A two-stage system may use \(N\) cheap evaluations plus only \(M\ll N\) expensive evaluations.
+
+The computational saving comes with a hard ceiling: if Stage~1 removes the correct item, no Stage~2 reranker can recover it.
+
+This creates a clean diagnostic decomposition:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{retrieval failure}: the correct candidate did not survive the first stage;
+  \item \textbf{reranking failure}: the candidate survived but the expensive scorer still ranked it poorly.
+\end{itemize}
+
+The budget \(M\) is therefore not just a speed setting. It changes the reachable quality of the system.
+
+\begin{figure}[ht]
+  \figureaction{Create a quality-versus-compute diagram for two-stage inference. Show a large candidate memory, cheap Stage-1 scoring over all candidates, top-M selection, expensive Stage-2 reranking over only M, and final output. Add a small graph where increasing M raises Stage-1 recall but also increases second-stage compute, eventually approaching full search.}
+  \caption{Test-time computation can be allocated selectively. A smaller candidate budget saves work but may discard the correct answer before expensive verification can help.}
+  \label{fig:week11-test-time-compute}
+\end{figure}
+
+\section{Application to the architecture: retrieval instead of drawing the future}
+
+\begin{architecturebox}
+StoryReasoning has repeatedly exposed a problem with direct next-frame generation: after a camera cut, the exact target pixels are not determined by the four inputs. A pixel loss can therefore reward an average-looking output even when a related real frame is more plausible.
+
+One alternative is to change the inference problem. Instead of generating pixels, treat real candidate frames as an external memory. Use frozen representations of the four context frames/descriptions to build a query, retrieve likely fifth-frame candidates, then spend a second signal on a smaller set to rerank them.
+
+The architecture narrative reports a stronger retrieval formulation in which the true next frame was selected from 2,974 candidates about \(7\%\) of the time and appeared in the top 10 about \(40\%\) of the time. The corresponding chance rates are roughly \(0.034\%\) top-1 and \(0.34\%\) top-10. Those numbers do not make retrieval equivalent to generation, but they show that the context contains information useful for ranking real future frames far above chance.
+
+This formulation also makes the inference-time budget explicit. A cheap text or image score can shortlist candidates; a more expensive multimodal score can rerank only the shortlist. No full assessment model needs to be retrained when the candidate memory changes.
+
+The trade-off is conceptual as well as computational. Retrieval guarantees that the returned image is an existing real frame, but it cannot invent a genuinely novel continuation that is absent from memory. Generation can create new outputs, but must model plausibility and uncertainty rather than simply rank stored examples.
+\end{architecturebox}
+
+This case is a useful endpoint for the whole module because it illustrates that task formulation is still an architectural decision. The raw data did not change. What changed was whether the system was asked to regress pixels, sample from a distribution or retrieve an existing candidate.
+
+\section{Where does the information live?}
+
+We can now answer the chapter's central question with more precision. A modern system may draw useful behaviour from several stores at once.
+
+\subsection{Parameters}
+
+Parameters contain slowly acquired structure produced by optimisation. They may encode visual features, linguistic regularities, routing strategies or a procedure for interpreting demonstrations.
+
+Changing parameters normally has persistence: the new state affects later predictions until the parameters are restored or changed again.
+
+\subsection{Activations and context}
+
+Activations are temporary. They can hold the current prompt, demonstration mapping, recurrent memory or attention result. Their contents disappear when the forward pass or context ends unless copied elsewhere.
+
+In-context learning exploits this temporary workspace: the weights define how to process context; the context defines the current episode.
+
+\subsection{External memory}
+
+Documents, vector databases and candidate pools live outside the neural parameters. They can be edited, versioned and refreshed independently. Retrieval determines which part enters the model's working context.
+
+\subsection{Inference procedure}
+
+Search, sampling, reranking and verification are neither stored facts nor parameter changes. They are computation policies. They determine how much work the system does before committing to an answer.
+
+These components can be composed. A deployed system may use pretrained parameters to encode a query, retrieve fresh documents, place them in the context window, sample several answers and rerank them, while also adapting a small normalisation state. Saying simply that ``the model learned at test time'' would hide the engineering structure that actually matters.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.20\textwidth}p{0.24\textwidth}p{0.47\textwidth}}
+\toprule
+Location & Typical lifetime & Diagnostic question \\
+\midrule
+Parameters & long-lived & Did any tensor or persistent state change during inference? \\
+Context/activations & one request or context window & Does changing demonstrations or instructions alter behaviour with identical weights? \\
+External memory & separately persistent & Was the needed item present, retrieved and passed downstream? \\
+Search budget & one inference procedure & Does quality change with samples, retrieval depth, reranking depth or verification steps? \\
+\bottomrule
+\end{tabular}
+\caption{The phrase ``the system learned'' becomes more useful when replaced by a statement about what information store or computation actually changed.}
+\label{tab:week11-information-locations}
+\end{table}
+
+\section{A diagnostic workflow for adaptive inference}
+
+When a deployed system improves or changes after receiving new information, the following questions usually locate the mechanism.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Did the base parameters change?} Compare parameter/state snapshots before and after inference.
+  \item \textbf{Did only the context change?} Hold weights fixed and perturb demonstrations, instructions or retrieved evidence.
+  \item \textbf{Did an external store change?} Check whether documents/candidates or their index were edited.
+  \item \textbf{Did the computation budget change?} Report candidate count, sample count, search depth, reranking depth or adaptation steps.
+  \item \textbf{What objective or score drove the extra computation?} A verifier or adaptation loss is another specification and can be wrong.
+  \item \textbf{Where did failure occur?} Separate proposal/retrieval failure from selection/reader/verifier failure.
+  \item \textbf{What persists?} Determine whether one request can influence future requests through updated state.
+\end{enumerate}
+
+Notice how little of this requires new vocabulary. The same habits from the compulsory module still work: establish a baseline, isolate the variable that changed, intervene on the proposed mechanism and choose a metric that answers the actual question.
+
+\begin{optionalexercise}[title={Optional mathematics --- a simple retrieval ceiling}]
+A two-stage system retrieves \(M\) items, then uses a perfect reranker that always places the true item first whenever it survives Stage~1. Let Stage-1 recall@\(M\) be \(r_M\).
+
+\begin{enumerate}[leftmargin=*]
+  \item What is the maximum possible final top-1 accuracy?
+  \item If \(r_{10}=0.62\) and \(r_{50}=0.86\), what final top-1 gains are theoretically available from improving only the reranker?
+  \item If the observed final top-1 at \(M=50\) is 0.30, which stage still leaves more headroom: retrieval or reranking?
+\end{enumerate}
+
+The exercise illustrates a general systems principle: downstream computation cannot recover information discarded upstream.
+\end{optionalexercise}
+
+\section{What this optional week adds to the learning thread}
+
+Weeks~1--10 form a complete deep-learning module. They take us from finite examples to objectives and optimisation; from linear transformations to learned representations; from generalisation and inductive bias to explanation; from memory to attention; and finally from information routing to the geometry of large pretrained systems.
+
+This optional week does not replace that story. It adds a question that becomes important once a model is embedded inside a larger inference system.
+
+The conventional learning thread ended with representation geometry. The extension is:
+\begin{center}
+  \emph{representation geometry} \(\longrightarrow\) \emph{learning and computation during inference}.
+\end{center}
+
+That extension reveals four distinct possibilities:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{in-context learning}: parameters encode a procedure; temporary examples specify the current task;
+  \item \textbf{external memory}: current information can be retrieved without moving it into the weights;
+  \item \textbf{test-time adaptation}: selected state or parameters are actually optimised on deployment data;
+  \item \textbf{test-time computation}: frozen components can sample, search, verify and rerank before producing one answer.
+\end{itemize}
+
+The unifying idea is that a deployed AI system is larger than one parameter vector and one forward pass. It can contain long-lived parameters, temporary activations, editable memory and an inference policy that decides how computation is spent.
+
+\begin{keyidea}
+The final diagnostic question of the module is therefore not merely ``did the model learn?'' It is: \emph{what changed, where is the information stored, how long does it persist, what computation uses it, and what evidence shows that this mechanism improved the task we actually care about?}
+\end{keyidea}
+
+That question brings us back to the beginning. A learning system is still a set of choices about data, representations, objectives, computation and evidence. Modern inference makes the system boundary larger, but it does not make those choices disappear.
