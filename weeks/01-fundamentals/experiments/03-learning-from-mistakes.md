@@ -2,6 +2,8 @@
 
 **Dataset:** No external dataset. The experiment creates a tiny synthetic 2D binary-classification dataset of about 20 points directly in the notebook.
 
+**Key concepts:** binary classification, linear classifier, decision boundary, weights and bias, prediction score, mistake-driven learning, perceptron, update size, linear separability, example order.
+
 **Expected computational budget:** Negligible. Training the simple learner and producing the plots should take only seconds.
 
 **Recommended runtime:** **CPU.** A GPU is unnecessary for this experiment and would add complexity without a useful speed benefit.
@@ -16,7 +18,7 @@ Do not read ahead while doing the experiment. Run each prompt, inspect the resul
 
 Copy this into Gemini:
 
-> Create a very small 2D binary classification dataset with about 20 points, split into two clearly separable classes. Plot the points. Add an arbitrary straight decision boundary that initially misclassifies several examples. For every point, show whether the current boundary classifies it correctly or incorrectly. Keep the dataset and boundary parameters available for later prompts. Do not train anything yet.
+> Create a very small 2D binary classification dataset with about 20 points, split into two clearly separable classes. Plot the points. Add an arbitrary straight decision boundary that initially misclassifies several examples. For every point, show whether the current boundary classifies it correctly or incorrectly. Keep the dataset and boundary parameters available for later prompts. Do not train anything yet. After creating it, briefly explain the classifier you chose: what score it computes from the two input coordinates, what the weights and bias do, how that score creates a straight decision boundary, and how the score determines which class is predicted.
 
 ### Questions
 
@@ -29,7 +31,7 @@ Copy this into Gemini:
 
 ## Prompt 2
 
-> Starting from the boundary in the previous prompt, implement a simple mistake-driven learning rule. Set `update_size = 1.0` near the top of the cell so I can easily change it later. Visit the training points one at a time. If the current boundary classifies a point correctly, do nothing. If it is wrong, change the weights and bias in the direction that would favour the correct class for that point, scaled by `update_size`. Process the dataset repeatedly until it completes a full pass with no mistakes, or for at most 30 passes. Record the number of mistakes in each pass and save the boundary after every update. Plot the mistakes per pass and show six representative snapshots of the boundary changing from its initial position to its final position. Do not use sklearn's Perceptron class.
+> Starting from the boundary in the previous prompt, implement a simple mistake-driven learning rule. Set `update_size = 1.0` near the top of the cell so I can easily change it later. Visit the training points one at a time. If the current boundary classifies a point correctly, do nothing. If it is wrong, change the weights and bias in the direction that would favour the correct class for that point, scaled by `update_size`. Process the dataset repeatedly until it completes a full pass with no mistakes, or for at most 30 passes. Record the number of mistakes in each pass and save the boundary after every update. Plot the mistakes per pass and show six representative snapshots of the boundary changing from its initial position to its final position. Do not use sklearn's Perceptron class. After implementing the rule, briefly explain one update using one mistaken point: what changes in the weights and bias, and why that change makes the correct class more likely for that point.
 
 ### Questions
 
