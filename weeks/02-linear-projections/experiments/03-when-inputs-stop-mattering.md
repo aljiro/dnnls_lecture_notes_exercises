@@ -18,7 +18,7 @@ Do not read ahead while doing the experiment. Run each prompt, inspect the resul
 
 Copy this into Gemini:
 
-> Create about 100 input values `x` and targets generated approximately from `y = 2x + 5` with moderate random noise. Set a fixed seed. Make a second version of the dataset by randomly shuffling the `x` values while leaving the `y` values in their original order. Plot the original `(x, y)` pairs and shuffled `(x, y)` pairs side by side. Also add an interactive slider labelled `fraction shuffled` from 0% to 100%. Moving the slider should update one scatter plot by progressively breaking that fraction of the input-target pairings using a fixed reproducible permutation; do not regenerate the underlying `x` or `y` values. Do not train anything yet. Briefly explain exactly what information the shuffle destroys and what information remains unchanged.
+> Create about 100 input values `x` and targets generated approximately from `y = 2x + 5` with moderate random noise. Set a fixed seed. Make a second version of the dataset by randomly shuffling the `x` values while leaving the `y` values in their original order. Plot the original `(x, y)` pairs and shuffled `(x, y)` pairs side by side. Keep the shuffle operation explicit in the code so I can inspect and change it later. Do not train anything yet. Briefly explain exactly what information the shuffle destroys and what information remains unchanged.
 
 ### Questions
 
@@ -26,8 +26,7 @@ Copy this into Gemini:
 2. Do both versions contain exactly the same individual `x` values?
 3. Do both versions contain exactly the same individual `y` values?
 4. What changed when only the pairing was shuffled?
-5. As you move the slider, does the useful relationship disappear all at once or progressively?
-6. Could a learner infer the original relationship from the fully shuffled pairs alone?
+5. Could a learner infer the original relationship from the shuffled pairs alone?
 
 ---
 
@@ -73,7 +72,7 @@ Copy this into Gemini:
 
 ## Prompt 5
 
-> Starting from the informative dataset, create several partially shuffled versions by randomly breaking the input-target pairing for approximately 0%, 25%, 50%, 75%, and 100% of the examples. Train the same linear model on each version with the same settings. Plot learned `w`, learned `b`, final loss, and prediction spread against shuffle percentage. Keep the procedure simple and reproducible. Briefly explain what trend you see as useful input information is gradually removed.
+> Starting from the informative dataset, create several partially shuffled versions by randomly breaking the input-target pairing for approximately 0%, 25%, 50%, 75%, and 100% of the examples. Put these percentages in one clearly marked list near the top of the cell so I can edit them later. Train the same linear model on each version with the same settings. Plot learned `w`, learned `b`, final loss, and prediction spread against shuffle percentage. Keep the procedure simple and reproducible. Briefly explain what trend you see as useful input information is gradually removed.
 
 ### Questions
 
