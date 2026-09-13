@@ -1,2 +1,597 @@
-\chapter{Building Blocks: MLP Projections}
+\chapter{From linear rules to neural networks}
 \label{chap:week03}
+
+In Week~2, learning altered the parameters of a linear model until its predictions reduced a chosen loss. That mechanism was already surprisingly general. It gave us parameters, a forward computation, an objective, gradients and iterative updates. Yet the model itself remained severely restricted: however long we trained it, a linear transformation could only express a linear relationship.
+
+This week asks what must change if the structure of the problem is not linear.
+
+The answer is not simply ``add more parameters''. Two linear transformations placed one after another are still equivalent to one linear transformation. Something qualitatively different must occur between them. Neural networks obtain that difference by alternating learned linear projections with fixed nonlinear functions. Once we do this, an intermediate layer is no longer merely another calculation on the way to the output. It can become a new representation of the problem.
+
+That shift is the important one. We shall begin with a single artificial neuron, then ask what decision it can make, why one such decision can be insufficient, how hidden layers transform a geometry, and finally how information about an error can travel backward through the resulting composition.
+
+\begin{keyidea}
+A multilayer network is useful not merely because it performs more arithmetic, but because nonlinear hidden layers can transform a problem into a representation in which a simple final decision becomes possible.
+\end{keyidea}
+
+\section{From a linear model to an artificial neuron}
+
+Recall the linear prediction from Week~2. With an input vector \(\vect{x}\in\R^d\), weights \(\vect{w}\in\R^d\) and bias \(b\), we compute
+\begin{equation}
+  z = \vect{w}^{\mathsf T}\vect{x}+b.
+  \label{eq:week3-preactivation}
+\end{equation}
+For regression, \(z\) may itself be the prediction. A neuron inserts one additional operation:
+\begin{equation}
+  h = \phi(z)
+    = \phi\!\left(\vect{w}^{\mathsf T}\vect{x}+b\right),
+  \label{eq:week3-neuron}
+\end{equation}
+where \(\phi\) is an \emph{activation function}.
+
+It is useful to give the two quantities different names. The weighted sum \(z\) is the \emph{pre-activation}. The value \(h\) after applying \(\phi\) is the \emph{activation}. Keeping these separate prevents a common conceptual blur: the weights determine a learned linear projection, while the activation changes how the unit responds to that projection.
+
+Historically, the perceptron used a threshold-like decision: one side of the threshold produced one response and the other side produced another \parencite{rosenblatt1958}. Modern networks normally use differentiable or almost-everywhere differentiable activations instead, but the basic decomposition remains visible:
+\[
+  \text{weighted evidence} \longrightarrow \text{nonlinear response}.
+\]
+
+\subsection{A score before a class}
+
+Suppose our task has two classes. A linear classifier can first compute a real-valued score
+\[
+  z = \vect{w}^{\mathsf T}\vect{x}+b.
+\]
+A simple rule is then
+\[
+  \hat y =
+  \begin{cases}
+    1, & z>0,\\
+    0, & z\le 0.
+  \end{cases}
+\]
+The value \(z\) is often called a \emph{logit} when it is the raw output used by a classification model. For the moment, treat a logit simply as a score before the final class decision. Week~4 will examine how logits are connected to probabilities and classification losses.
+
+The score contains more information than the final label. A point with \(z=8\) and a point with \(z=0.01\) are placed on the same side of the boundary, but they are not equally far from it. Neural-network training usually operates on such continuous scores rather than on a hard class decision, because continuous quantities can carry graded information about change.
+
+\section{Classification is geometry}
+
+Equation~\eqref{eq:week3-preactivation} has a geometric interpretation. The points satisfying
+\begin{equation}
+  \vect{w}^{\mathsf T}\vect{x}+b=0
+  \label{eq:week3-boundary}
+\end{equation}
+form a decision boundary. In two dimensions this boundary is a line. In three dimensions it is a plane. In higher dimensions it is a hyperplane.
+
+The weight vector \(\vect{w}\) is perpendicular to that hyperplane. Changing its direction rotates the boundary; changing the bias shifts the boundary without changing its orientation. The sign of \(z\) tells us on which side of the boundary a point lies.
+
+This gives a precise description of what a linear classifier can do: it can divide the input space into two half-spaces with one flat boundary.
+
+That is sometimes exactly what the problem requires. If two groups of points are well separated by a line, there is no merit in constructing a complicated nonlinear model merely because one is available. But other arrangements cannot be separated in this way, however well the linear model is optimised.
+
+\begin{figure}[ht]
+  \figureaction{Create a two-panel 2D diagram. Left: two classes that are cleanly separated by one straight decision boundary, with the normal weight vector w drawn perpendicular to the line. Right: an XOR-style four-corner arrangement with diagonally opposite corners sharing a class. Show several candidate straight lines, each necessarily leaving at least one region on the wrong side.}
+  \caption{A linear classifier can separate two half-spaces with one flat boundary. Some class arrangements are not linearly separable, so no amount of optimisation can make one line solve them perfectly.}
+  \label{fig:week3-linear-separability}
+\end{figure}
+
+\subsection{Optimisation failure or representational failure?}
+
+This distinction is worth making early. Suppose a classifier performs badly. There are at least two very different explanations.
+
+First, the model class might contain a good solution, but our learning procedure has not found it. This is an \emph{optimisation problem}. Second, the model class may simply be incapable of expressing the required rule. This is a \emph{representational problem}.
+
+The XOR-style arrangement in \cref{fig:week3-linear-separability} supplies the cleanest example of the second case. Searching longer, reducing the learning rate or collecting the same kind of data more carefully will not make one straight boundary perform a task that requires a non-straight division of the space.
+
+This is the phenomenon explored directly in the first Week~3 practical. The useful lesson is not the famous XOR pattern itself. It is the diagnostic question it teaches us to ask:
+
+\begin{quote}
+Is the learner failing to find a good member of its model class, or is the model class itself too restricted?
+\end{quote}
+
+Later, with large networks, the answer will be much harder to see. Here we can draw it.
+
+\section{Why more linear layers do not solve the problem}
+
+A natural first attempt is to add depth. Perhaps one linear layer is too simple, but two linear layers might be richer.
+
+Let
+\[
+  \vect{h}=\mat{W}_1\vect{x}+\vect{b}_1
+\]
+and then
+\[
+  \vect{y}=\mat{W}_2\vect{h}+\vect{b}_2.
+\]
+Substituting the first equation into the second gives
+\begin{align}
+  \vect{y}
+    &= \mat{W}_2(\mat{W}_1\vect{x}+\vect{b}_1)+\vect{b}_2\\
+    &= (\mat{W}_2\mat{W}_1)\vect{x}
+       +(\mat{W}_2\vect{b}_1+\vect{b}_2).
+\end{align}
+If we define
+\[
+  \mat{W}_\star=\mat{W}_2\mat{W}_1,
+  \qquad
+  \vect{b}_\star=\mat{W}_2\vect{b}_1+\vect{b}_2,
+\]
+then the whole two-layer computation is simply
+\[
+  \vect{y}=\mat{W}_\star\vect{x}+\vect{b}_\star.
+\]
+It is another affine transformation.
+
+The same argument applies to any finite stack of affine layers with nothing nonlinear between them. Such a stack may contain many parameters, but its input--output map can still be collapsed into one affine transformation.
+
+\begin{keyidea}
+Depth is not automatically nonlinearity. A sequence of linear or affine layers without nonlinear activations is still only one linear or affine transformation in disguise.
+\end{keyidea}
+
+This algebra explains an empirical result students see in the practicals: if the hidden activation in a small MLP is replaced by the identity function, the network loses the representational advantage that made the hidden layer useful.
+
+\begin{optionalexercise}[title={Optional mathematics --- collapse three affine layers}]
+Suppose
+\[
+\vect{h}_1=\mat{W}_1\vect{x}+\vect{b}_1,\qquad
+\vect{h}_2=\mat{W}_2\vect{h}_1+\vect{b}_2,
+\]
+and
+\[
+\vect{y}=\mat{W}_3\vect{h}_2+\vect{b}_3.
+\]
+Derive a single matrix \(\mat{W}_\star\) and bias \(\vect{b}_\star\) such that
+\[
+\vect{y}=\mat{W}_\star\vect{x}+\vect{b}_\star.
+\]
+Then explain in one sentence why adding an identity activation between the layers changes nothing.
+\end{optionalexercise}
+
+\section{The nonlinearity}
+
+The missing ingredient is a nonlinear function between learned projections. For one hidden layer we write
+\begin{equation}
+  \vect{h}=\phi(\mat{W}_1\vect{x}+\vect{b}_1),
+  \label{eq:week3-hidden}
+\end{equation}
+where \(\phi\) is applied element by element. An output layer may then compute
+\begin{equation}
+  \vect{s}=\mat{W}_2\vect{h}+\vect{b}_2.
+  \label{eq:week3-output}
+\end{equation}
+The composition can no longer, in general, be reduced to one matrix multiplication because \(\phi\) interrupts the algebraic collapse.
+
+Several activations recur in the history and practice of neural networks.
+
+\subsection{Step activation}
+
+A threshold or step activation changes abruptly at a chosen value, often zero:
+\[
+  \phi(z)=
+  \begin{cases}
+    1, & z>0,\\
+    0, & z\le 0.
+  \end{cases}
+\]
+It gives a clear picture of a neuron as a switch and is useful for understanding early perceptrons. Its drawback for gradient-based learning is equally clear: away from the discontinuity its ordinary derivative is zero, while at the discontinuity it is not differentiable in the ordinary sense. A small change in the weights usually causes no small change at all in the output.
+
+\subsection{Sigmoid}
+
+The logistic sigmoid is
+\[
+  \sigma(z)=\frac{1}{1+e^{-z}}.
+\]
+It maps all real inputs smoothly into \((0,1)\). Near zero, changing \(z\) changes the output appreciably. Far into either tail, the curve flattens and becomes relatively insensitive to further changes.
+
+Sigmoids were historically important in neural networks and remain useful in specific output mechanisms. Hidden layers in large modern networks usually use other activations because saturation can make gradients small over broad ranges.
+
+\subsection{Hyperbolic tangent}
+
+The hyperbolic tangent
+\[
+  \tanh(z)
+\]
+is also smooth and saturating, but its range is \((-1,1)\). It is centred around zero, which often makes its hidden activations easier to interpret geometrically than a sigmoid's strictly positive outputs. Like the sigmoid, it becomes locally insensitive for sufficiently large positive or negative inputs.
+
+\subsection{ReLU}
+
+The rectified linear unit is
+\begin{equation}
+  \operatorname{ReLU}(z)=\max(0,z).
+  \label{eq:week3-relu}
+\end{equation}
+For positive inputs it is simply the identity; for negative inputs it outputs zero. Its derivative is therefore
+\[
+  \frac{d}{dz}\operatorname{ReLU}(z)=
+  \begin{cases}
+    1, & z>0,\\
+    0, & z<0,
+  \end{cases}
+\]
+with a convention required exactly at zero.
+
+ReLU is especially useful for geometric intuition. Each hidden unit divides its input space according to whether its pre-activation is positive or negative. On one side the unit is active and contributes a linear response; on the other side its contribution is zero. Several such units divide the input space into regions. Within each fixed pattern of active and inactive ReLUs, the whole network behaves linearly; crossing a ReLU boundary changes which linear rule is in force.
+
+Thus a ReLU network can be \emph{piecewise linear} without being globally linear.
+
+\begin{figure}[ht]
+  \figureaction{Create a compact activation-function figure with four aligned plots for step, sigmoid, tanh and ReLU over z from roughly -5 to 5. Beneath or beside each curve show a faint derivative/sensitivity curve. Emphasise saturation for sigmoid/tanh and the two constant-slope regions of ReLU.}
+  \caption{Common activation functions transform the same pre-activation in different ways. Their local sensitivities matter because gradients through a network are products of such local sensitivities.}
+  \label{fig:week3-activations}
+\end{figure}
+
+A modern smooth activation such as GELU plays a similar architectural role: it prevents stacked layers from collapsing into one global linear transformation while providing a smooth response. We need not dwell on its formula here. The important question is what the nonlinearity permits the composition to represent.
+
+\begin{checkpointbox}
+A network contains five \texttt{Linear} layers but no activation functions between them. Has it necessarily become capable of representing a curved decision boundary? Explain without appealing to the number of parameters.
+\end{checkpointbox}
+
+\section{From neurons to a multilayer perceptron}
+
+An \emph{MLP}, or multilayer perceptron, alternates affine transformations and nonlinear activations. A simple one-hidden-layer network can be written
+\begin{align}
+  \vect{z}_1 &= \mat{W}_1\vect{x}+\vect{b}_1,\\
+  \vect{h}_1 &= \phi(\vect{z}_1),\\
+  \vect{s} &= \mat{W}_2\vect{h}_1+\vect{b}_2.
+  \label{eq:week3-mlp}
+\end{align}
+Here \(\vect{h}_1\) is the hidden representation and \(\vect{s}\) is the output score or collection of scores.
+
+Three words are useful.
+
+\emph{Input layer} refers to the supplied features. It does not usually perform a learned transformation by itself. A \emph{hidden layer} produces an intermediate representation that is neither the raw input nor the final output. The \emph{output layer} maps the final hidden representation to the quantities required by the task.
+
+The \emph{width} of a hidden layer is the number of units in it. The \emph{depth} is the number of successive learned transformations, with conventions differing slightly across texts about whether to count the output layer. In these notes, what matters is the structural idea: width provides several features at one stage; depth composes transformations across stages.
+
+\subsection{A hidden layer is a change of coordinates}
+
+The most productive mental model is not that each hidden neuron is a miniature classifier. Instead, the hidden layer constructs new coordinates.
+
+Suppose an input point \(\vect{x}\in\R^2\) is transformed into
+\[
+  \vect{h}=\begin{bmatrix}h_1\\h_2\end{bmatrix}.
+\]
+The same example can now be plotted in two spaces: its original coordinates \((x_1,x_2)\), and its hidden coordinates \((h_1,h_2)\). The class arrangement may be tangled in the first space and simple in the second.
+
+The output layer need not produce a complicated boundary in hidden space. It may still be a linear classifier there:
+\[
+  s = \vect{v}^{\mathsf T}\vect{h}+c.
+\]
+What looks nonlinear from the original input coordinates can therefore arise from a simple linear decision applied after a nonlinear transformation.
+
+This is a central idea of deep learning: \emph{learn a representation in which the desired computation becomes easier}.
+
+\begin{figure}[ht]
+  \figureaction{Create a three-stage diagram of a small 2D classification problem. Left: two interlocking or two-moons classes in input space with no satisfactory straight separator. Middle: arrows through a nonlinear hidden layer transforming points into a new 2D hidden space. Right: the transformed classes are more nearly linearly separable, with one straight output boundary. Use the same individual points across panels so the viewer can track that the examples did not change, only their coordinates.}
+  \caption{A hidden layer can reorganise the geometry of a problem. The output layer may remain linear in hidden space even though the corresponding decision boundary is nonlinear in the original input space.}
+  \label{fig:week3-hidden-geometry}
+\end{figure}
+
+\subsection{Depth as repeated re-representation}
+
+Adding another hidden layer gives
+\[
+  \vect{h}_2
+  =\phi_2\!\left(\mat{W}_2\vect{h}_1+\vect{b}_2\right),
+  \qquad
+  \vect{h}_1
+  =\phi_1\!\left(\mat{W}_1\vect{x}+\vect{b}_1\right).
+\]
+The second layer does not receive the original problem directly. It receives the representation constructed by the first layer. Depth therefore permits a sequence of reorganisations.
+
+This description is more useful than saying that deeper networks are simply ``more powerful''. The practical question is what computation a representation makes easy for the next layer. In vision, later layers may eventually make object identity easier to read out; in language, representations may make syntactic or semantic distinctions easier to recover; in our tiny geometric examples, a hidden layer can make classes linearly separable.
+
+Not every deeper network will learn a useful representation. Capacity is only possibility, not a guarantee. Optimisation, data and objective still determine which transformation is actually found.
+
+\begin{pytorchbox}{the notation of a tiny MLP}
+import torch.nn as nn
+
+model = nn.Sequential(
+    nn.Linear(2, 4),   # z1 = W1 x + b1
+    nn.ReLU(),         # h1 = ReLU(z1)
+    nn.Linear(4, 1),   # s  = W2 h1 + b2
+)
+
+# A batch with B examples has shape [B, 2].
+# The raw output has shape [B, 1] and can be treated as a logit.
+\end{pytorchbox}
+
+The code is compact because PyTorch stores the matrices and biases inside each \texttt{Linear} module. Conceptually, however, nothing has disappeared: the network still implements the equations above.
+
+\begin{optionalexercise}[title={Optional coding --- make the matrices visible}]
+Create a \texttt{Linear(2, 3)} layer and one input vector with two features. Print the layer's weight matrix and bias. Compute the layer output once with PyTorch and once manually using matrix multiplication. Then apply \texttt{torch.relu} manually and check that it matches an equivalent \texttt{Sequential} model.
+
+The purpose is not to train a network. It is to verify that the compact library notation is exactly the matrix notation used in the chapter.
+\end{optionalexercise}
+
+\section{ReLU networks divide space into regions}
+
+The hidden-representation view can be made still more concrete for ReLU networks.
+
+For one hidden unit,
+\[
+  h_j=\max(0,\vect{w}_j^{\mathsf T}\vect{x}+b_j).
+\]
+The equation
+\[
+  \vect{w}_j^{\mathsf T}\vect{x}+b_j=0
+\]
+defines the boundary at which that unit changes between inactive and active behaviour. With several hidden units, several such boundaries cross the input space. Each region corresponds to a particular activation pattern such as
+\[
+  (\text{active},\text{inactive},\text{active},\ldots).
+\]
+Within one region, every active ReLU behaves like the identity and every inactive ReLU behaves like zero. The remaining composition is affine there. Move into a neighbouring region and a different set of units becomes active, producing a different affine rule.
+
+This explains how a network constructed from simple pieces can make a bent or faceted decision boundary. The network is not drawing one complicated curve directly. It is assembling different local linear behaviours.
+
+The picture also clarifies the role of width. More hidden units can create more learned boundaries and therefore more possible activation patterns. Depth can repeatedly partition and transform regions produced by earlier layers. We will later see that the practical usefulness of this capacity depends heavily on whether optimisation can use it and whether the learned solution generalises.
+
+\begin{checkpointbox}
+ReLU itself is linear for every positive input and constant for every negative input. Why can a network containing ReLUs nevertheless be nonlinear as a function of its original input?
+\end{checkpointbox}
+
+\section{The forward pass: one composed calculation}
+
+So far we have described what a network can represent. We now reconnect representation to learning.
+
+Consider the smallest network that still contains a hidden nonlinearity:
+\begin{align}
+  z_1 &= w_1x+b_1,\\
+  h &= \operatorname{ReLU}(z_1),\\
+  \hat y &= w_2h+b_2,\\
+  \loss &= (\hat y-y)^2.
+  \label{eq:week3-scalar-network}
+\end{align}
+Given current values for \(x\), \(y\) and the four parameters, we can evaluate these equations from top to bottom. This is the \emph{forward pass}.
+
+A forward pass does not learn anything by itself. No parameter changes merely because a prediction has been produced. It is the evaluation of the current function: compute intermediate values, obtain an output, then compute the loss.
+
+Those intermediate values matter. To know how changing \(w_1\) affects the final loss, we need to know how \(w_1\) affected \(z_1\), how \(z_1\) affected \(h\), how \(h\) affected \(\hat y\), and how \(\hat y\) affected \(\loss\).
+
+This dependency structure is naturally represented as a computational graph.
+
+\begin{figure}[ht]
+  \figureaction{Draw the scalar computational graph for the sequence: first-layer weighted sum, ReLU hidden activation, second-layer output, and squared-error loss. Show the input and four parameters entering their operations, and the target entering the loss. Place small arrows under the graph pointing left-to-right labelled ``forward: values'' and right-to-left labelled ``backward: sensitivities''.}
+  \caption{A computational graph separates the forward flow of values from the backward flow of sensitivities. Early parameters affect the loss through chains of intermediate computations.}
+  \label{fig:week3-computational-graph}
+\end{figure}
+
+A large neural network is the same idea at greater scale. Matrix multiplications, activations, normalisation, attention and losses are all nodes in a larger differentiable computation. The graph tells us not only how to obtain the output, but how one quantity depends on another.
+
+\section{Local sensitivity and the chain rule}
+
+Week~2 introduced a derivative as local sensitivity. If
+\[
+  u=f(v),
+\]
+then
+\[
+  \frac{du}{dv}
+\]
+tells us how a small change in \(v\) changes \(u\), locally.
+
+A neural network is a composition of many such functions. Suppose
+\[
+  a=f(b),\qquad b=g(c).
+\]
+Then a change in \(c\) first changes \(b\), which then changes \(a\). The chain rule states
+\[
+  \frac{da}{dc}
+  =\frac{da}{db}\frac{db}{dc}.
+\]
+The total sensitivity is a product of local sensitivities along the path.
+
+Apply this to the scalar network in \cref{eq:week3-scalar-network}. The first-layer weight \(w_1\) affects the loss through the path
+\[
+  w_1 \rightarrow z_1 \rightarrow h \rightarrow \hat y \rightarrow \loss.
+\]
+Therefore
+\begin{equation}
+  \frac{\partial\loss}{\partial w_1}
+  =
+  \frac{\partial\loss}{\partial\hat y}
+  \frac{\partial\hat y}{\partial h}
+  \frac{\partial h}{\partial z_1}
+  \frac{\partial z_1}{\partial w_1}.
+  \label{eq:week3-chain}
+\end{equation}
+Each factor is local:
+\begin{align}
+  \frac{\partial\loss}{\partial\hat y} &= 2(\hat y-y),\\
+  \frac{\partial\hat y}{\partial h} &= w_2,\\
+  \frac{\partial h}{\partial z_1} &=
+  \begin{cases}
+    1,&z_1>0,\\
+    0,&z_1<0,
+  \end{cases}\\
+  \frac{\partial z_1}{\partial w_1} &= x.
+\end{align}
+No individual component needs to understand the entire network. Each contributes its own local derivative. The chain rule combines them into the sensitivity of the final loss to an early parameter.
+
+\subsection{What happens at an inactive ReLU?}
+
+Equation~\eqref{eq:week3-chain} contains an instructive special case. If \(z_1<0\), then
+\[
+  \frac{\partial h}{\partial z_1}=0.
+\]
+The whole product for \(\partial\loss/\partial w_1\) becomes zero, no matter what the other factors are.
+
+This is not yet a full discussion of ``dead ReLUs''; that belongs to Week~4, where we consider training dynamics. For now, observe the mechanism. The same switch that makes the forward activation zero can also block the backward sensitivity through that path. Forward behaviour and backward behaviour are two views of the same local function.
+
+\begin{optionalexercise}[title={Optional mathematics --- follow one gradient}]
+Let
+\[
+x=2,\quad y=5,\quad w_1=1,\quad b_1=0,\quad w_2=2,\quad b_2=0.
+\]
+For the scalar network in \cref{eq:week3-scalar-network}:
+\begin{enumerate}[leftmargin=*]
+  \item compute \(z_1\), \(h\), \(\hat y\) and \(\loss\);
+  \item compute the four local derivatives in \cref{eq:week3-chain};
+  \item multiply them to obtain \(\partial\loss/\partial w_1\);
+  \item change only \(b_1\) so that \(z_1<0\) and repeat.
+\end{enumerate}
+Explain why the first-layer gradient changes so dramatically.
+\end{optionalexercise}
+
+\section{Backward pass and backpropagation}
+
+If we can apply the chain rule, why give the procedure a special name?
+
+Because a network may contain millions or billions of parameters. Estimating the effect of each parameter independently would repeat an enormous amount of work. Many parameters share the same later computations. Backpropagation exploits that reuse.
+
+Start at the loss. We know trivially that
+\[
+  \frac{\partial\loss}{\partial\loss}=1.
+\]
+From there, move backward through the graph. At each operation, combine the sensitivity arriving from later computations with that operation's local derivative. Once we have computed
+\[
+  \frac{\partial\loss}{\partial h},
+\]
+for example, that quantity can be reused when calculating gradients for every parameter that influenced \(h\).
+
+This reverse accumulation of derivatives is the \emph{backward pass}. In neural-network language, the efficient application of this reverse-mode chain rule is called \emph{backpropagation}. The classic modern account by Rumelhart, Hinton and Williams emphasised exactly this use of error derivatives to learn internal representations \parencite{rumelhart1986}.
+
+\begin{keyidea}
+Backpropagation is not a mysterious neural-network-specific law of learning. It is an efficient algorithm for applying the chain rule through a composed computation, reusing derivatives that many parameters have in common.
+\end{keyidea}
+
+\subsection{Backpropagation is not gradient descent}
+
+Two procedures are often collapsed in casual speech:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Backpropagation computes gradients.} It answers questions such as \(\partial\loss/\partial w\).
+  \item \textbf{An optimiser uses gradients to change parameters.} Ordinary gradient descent then performs, for example,
+  \[
+    w \leftarrow w-\eta\frac{\partial\loss}{\partial w}.
+  \]
+\end{enumerate}
+
+Calling \texttt{backward()} does not, by itself, make a PyTorch model learn. It populates gradient information. A separate update step changes the parameters.
+
+This distinction will matter greatly in Week~4, where different optimisers will use the same backpropagated gradients in different ways.
+
+\subsection{Why the forward pass must remember things}
+
+Backpropagation requires information produced during the forward pass. The derivative of ReLU depends on whether its pre-activation was positive. The derivative of a matrix multiplication depends on the values that entered it. More generally, local derivatives often require intermediate activations.
+
+Automatic-differentiation systems therefore record enough structure during the forward computation to reconstruct the required local derivative operations later. The resulting graph is not mystical bookkeeping hidden inside PyTorch; it is a mechanised form of the dependencies we have drawn by hand.
+
+\begin{pytorchbox}{autograd computes gradients; it does not update parameters}
+import torch
+
+x  = torch.tensor(2.0)
+y  = torch.tensor(5.0)
+w1 = torch.tensor(1.0, requires_grad=True)
+b1 = torch.tensor(0.0, requires_grad=True)
+w2 = torch.tensor(2.0, requires_grad=True)
+b2 = torch.tensor(0.0, requires_grad=True)
+
+z1 = w1 * x + b1
+h = torch.relu(z1)
+y_hat = w2 * h + b2
+loss = (y_hat - y) ** 2
+
+loss.backward()
+print(w1.grad, b1.grad, w2.grad, b2.grad)
+
+# No parameter has changed yet.
+\end{pytorchbox}
+
+The fourth Week~3 practical follows essentially this computation in slow motion: first by perturbing parameters, then by multiplying local derivatives manually, and finally by comparing those results with autograd. The point is to remove any sense that \texttt{backward()} performs an unexplained trick.
+
+\section{Representation learning and optimisation meet}
+
+We can now state what changed between Week~2 and Week~3.
+
+In linear regression, learning adjusted a rule whose representation was fixed: the model always acted directly on the supplied input coordinates. In an MLP, the parameters of earlier layers determine intermediate coordinates themselves. Gradient descent therefore changes not only a final predictor but also the representation on which later predictors operate.
+
+A hidden unit can rotate, shift and threshold one projection of the input. A hidden layer combines several such responses. Training alters the boundaries at which those units become active, and therefore alters the geometry presented to the next layer. In a two-dimensional teaching example, we can literally watch the points move in hidden space as the parameters change.
+
+The output layer is learning and the hidden layer is learning, but they are not performing identical jobs. The output layer tries to read useful information from its input representation. Earlier layers try to construct a representation from which useful information can be read.
+
+That is why a network's internal activations deserve to be studied in their own right. Final accuracy can tell us whether a task was solved; it does not tell us how the problem was reorganised internally.
+
+\begin{architecturebox}
+The StoryReasoning system later uses a learned visual representation: a frame encoder compresses an image into a latent vector before the rest of the system reasons about the sequence. An early version used a very narrow 16-dimensional bottleneck followed by ReLU. Many latent coordinates became identically or almost identically zero, and the representation became nearly constant across different frames.
+
+Week~3 gives us the mechanism needed to understand why this is dangerous. A ReLU coordinate that remains on its negative side outputs zero, and its local derivative through that path is also zero. If many coordinates contribute no variation, the next part of the system is not receiving a rich re-representation of the frame at all.
+
+Do not treat this yet as a complete diagnosis of training failure. In Week~4 we will ask why units become inactive, how to measure collapse, and what changes in optimisation or normalisation can prevent it. The Week~3 lesson is simpler: \emph{the hidden representation is part of what the network learns, and a failure of that representation can make later computation impossible no matter how sophisticated the later modules are.}
+\end{architecturebox}
+
+\section{What a neural network is --- and is not}
+
+At this point we can give a working definition without appealing to biological metaphor.
+
+A feed-forward neural network is a parameterised composition of simple differentiable or almost-everywhere differentiable transformations. Linear layers mix coordinates. Nonlinear activations prevent the composition from collapsing into one global linear map. Hidden layers create intermediate representations. A forward pass evaluates the composition; a backward pass efficiently computes how the final loss depends on its parameters.
+
+Nothing in this definition says that a network automatically understands a task. Nothing says that a deeper network must train better than a shallow one. Nothing says that a hidden unit corresponds to one human concept. Those are empirical questions about learned solutions, not consequences of the word ``neural''.
+
+The power of the construction is more modest and more precise: by composing trainable projections with nonlinear transformations, we obtain a flexible family of functions whose internal representations can themselves be adjusted using gradient information.
+
+\section{Connections to the Week 3 practicals}
+
+The practical sequence approaches the chapter's argument from four complementary directions.
+
+The first experiment begins with a failure: one straight line cannot solve the four-corner arrangement. Two thresholded hidden units can. The important observation is that the successful network changes the representation before making the final linear decision.
+
+The second holds weights fixed and changes only activation functions. This separates the learned projection from the nonlinear response and makes local sensitivity visible before backpropagation is introduced.
+
+The third watches a two-unit hidden representation evolve while an MLP learns a two-moons dataset. Because the hidden layer has exactly two units, its representation can be plotted directly. The experiment makes the phrase ``representation learning'' literal rather than metaphorical.
+
+The fourth reduces backpropagation to one scalar computational graph. Finite differences, manual chain-rule derivatives and PyTorch autograd are compared on the same numbers, so the abstraction never outruns the calculation.
+
+The lecture and practical therefore divide the labour deliberately. The notes provide the common language and the mathematical relationships; the notebook supplies the evidence that these relationships produce the claimed behaviour.
+
+\section{A compact map of the computation}
+
+The ideas of the chapter can be summarised in one chain:
+\[
+\vect{x}
+\xrightarrow{\mat{W}_1,\vect{b}_1}
+\vect{z}_1
+\xrightarrow{\phi}
+\vect{h}_1
+\xrightarrow{\mat{W}_2,\vect{b}_2}
+\vect{s}
+\xrightarrow{\text{task/loss}}
+\loss.
+\]
+
+Read left to right, this is a forward computation. The hidden activation \(\vect{h}_1\) is a learned representation of the input. Nonlinearity makes that representation capable of changing the geometry of the problem.
+
+Read right to left, local derivatives transmit sensitivity:
+\[
+\frac{\partial\loss}{\partial\vect{s}}
+\rightarrow
+\frac{\partial\loss}{\partial\vect{h}_1}
+\rightarrow
+\frac{\partial\loss}{\partial\vect{z}_1}
+\rightarrow
+\frac{\partial\loss}{\partial\mat{W}_1}.
+\]
+Backpropagation performs this reverse calculation efficiently. An optimiser can then use the resulting gradients to update the parameters, after which a new forward pass begins.
+
+This cycle joins the previous two weeks:
+\[
+\text{examples}
+\rightarrow
+\text{objective}
+\rightarrow
+\text{optimisation}
+\rightarrow
+\text{representation}.
+\]
+The new link is representation. The learner is no longer changing only how strongly it weights the original inputs. It is changing the coordinates in which the problem will be solved.
+
+\begin{checkpointbox}
+Explain, without using the phrase ``because neural networks are nonlinear'', why an MLP with a ReLU hidden layer can express a decision rule that a single linear classifier cannot. Your answer should mention the hidden representation and the output boundary.
+\end{checkpointbox}
+
+\section{Where we go next}
+
+We have deliberately studied networks in a forgiving setting: tiny datasets, shallow models and computations that fit on a page. This lets us understand what each operation is supposed to do.
+
+Real training is less polite. Gradients can become very small or very large. ReLUs can remain inactive. Initial parameter scales matter. Different optimisers follow different trajectories. A model can fit the training data and still fail on new examples. A decreasing loss can coexist with the wrong learned behaviour. Several objectives can compete through one shared representation.
+
+Those are not reasons to discard the simple picture developed here. They are reasons to preserve it. Week~4 asks what happens when this same forward--backward mechanism is placed inside a realistic learning system and begins to misbehave.
