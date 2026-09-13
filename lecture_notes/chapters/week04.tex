@@ -1,2 +1,468 @@
-\chapter{Model and Learning Engineering}
+\chapter{Training, generalisation and diagnosis}
 \label{chap:week04}
+
+A neural network can be perfectly legal mathematics and still be a poor learning system. The forward pass may produce finite numbers. The backward pass may produce gradients. The optimiser may update every parameter without error. The training loss may even fall smoothly. None of these facts, by itself, establishes that the network is learning the behaviour we intended.
+
+This is the point at which neural-network work becomes engineering rather than algebra alone.
+
+In Week~3 we asked what a multilayer network can represent. We saw that nonlinear hidden layers can reorganise a problem and that backpropagation can carry local sensitivity information through a computational graph. This week asks a harder question: what evidence tells us that this machinery is working well? A model can fail because the objective rewards the wrong behaviour, because useful gradients do not reach important parameters, because the representation collapses, because the model exploits an undesirable signal, or because a rule that fits the training sample does not survive outside it. These are different failures. They call for different interventions.
+
+\begin{keyidea}
+A disappointing model score is a symptom, not a diagnosis. Before changing the optimiser, the architecture or the dataset, ask which part of the learning system is actually failing and what measurement would distinguish that explanation from its competitors.
+\end{keyidea}
+
+The chapter therefore has two strands. The first completes the mechanics of neural-network classification and training: logits, cross-entropy, gradients through several layers, optimisation, initialisation and normalisation. The second develops a discipline for interpreting the resulting behaviour: train/validation comparisons, baselines, ablations, permutation controls, calibration and checkpoint selection.
+
+\section{Backpropagation in a complete network}
+
+Consider a two-layer network
+\begin{align}
+  \vect{z}^{(1)} &= \mat{W}^{(1)}\vect{x}+\vect{b}^{(1)},\\
+  \vect{h} &= \phi\!\left(\vect{z}^{(1)}\right),\\
+  \vect{z}^{(2)} &= \mat{W}^{(2)}\vect{h}+\vect{b}^{(2)},\\
+  \loss &= \ell\!\left(\vect{z}^{(2)},y\right).
+\end{align}
+The forward pass computes these quantities in order. During the backward pass we ask how a small change in each intermediate value would alter the final loss.
+
+For the second layer the dependency is direct. The loss depends on \(\mat{W}^{(2)}\) through \(\vect{z}^{(2)}\). For the first layer the dependency is indirect:
+\[
+  \mat{W}^{(1)}
+  \longrightarrow \vect{z}^{(1)}
+  \longrightarrow \vect{h}
+  \longrightarrow \vect{z}^{(2)}
+  \longrightarrow \loss.
+\]
+The chain rule combines local sensitivities along this path. In scalar notation we wrote such products explicitly in Week~3. With vectors and matrices the bookkeeping becomes larger but not conceptually different.
+
+It is useful to imagine a backward message attached to each node of the graph. At the output we know how the loss changes with the output score. That message is transformed as it passes backward through each operation. A linear layer sends sensitivity to both its inputs and its parameters. An activation multiplies the incoming sensitivity by its local derivative. When two later computations depend on the same earlier value, their contributions add.
+
+This last point is why backpropagation is efficient. The sensitivity of the loss with respect to an intermediate activation is computed once and reused for every earlier parameter that influences that activation. We do not perturb millions of parameters one by one and rerun the network millions of times.
+
+\begin{figure}[ht]
+  \figureaction{Draw a compact computational graph for a two-layer MLP: x -> affine layer -> z1 -> ReLU -> h -> affine layer -> logits -> loss. Above the arrows show the forward values. Beneath the same arrows show backward sensitivities dL/d(·) travelling in the opposite direction. At the two affine layers show separate branches to parameter gradients dL/dW and dL/db.}
+  \caption{Forward computation and backward sensitivity are two passes over the same computational graph. Backpropagation reuses intermediate sensitivities rather than estimating each parameter derivative independently.}
+  \label{fig:week4-backprop}
+\end{figure}
+
+\subsection{Automatic differentiation is bookkeeping, not an optimiser}
+
+Modern libraries record the differentiable operations that produced a loss and then apply the chain rule automatically. In PyTorch, calling \texttt{loss.backward()} fills gradient fields such as \texttt{weight.grad}. Nothing has yet been optimised. A separate step decides how those gradients change the parameters.
+
+This separation matters experimentally. If a model fails, we may ask three different questions:
+\begin{enumerate}[leftmargin=*]
+  \item Was the forward computation capable of representing a useful solution?
+  \item Did the backward computation deliver informative gradients to the relevant parameters?
+  \item Did the update rule use those gradients in a productive way?
+\end{enumerate}
+A single training-loss curve does not answer all three.
+
+\begin{pytorchbox}{one forward pass, one backward pass}
+model = nn.Sequential(
+    nn.Linear(20, 32),
+    nn.ReLU(),
+    nn.Linear(32, 1),
+)
+
+logits = model(x_batch).squeeze(-1)       # forward pass
+loss = criterion(logits, y_batch.float())
+
+optimizer.zero_grad()
+loss.backward()                           # compute gradients
+optimizer.step()                          # update parameters
+\end{pytorchbox}
+
+The three lines at the end should remain mentally distinct. Clearing stale gradients, computing new gradients and updating parameters are separate operations.
+
+\section{Classification: from scores to objectives}
+
+In Week~3 a classifier produced a real-valued score, or \emph{logit}. The sign of a binary logit could be used to choose one of two classes. To train such a classifier, however, we want a differentiable objective that does more than say ``right'' or ``wrong''. It should distinguish a barely correct score from a confidently correct one, and a barely incorrect score from a wildly incorrect one.
+
+\subsection{Binary classification}
+
+Let \(z\in\R\) be the logit for one example. The sigmoid function
+\begin{equation}
+  \sigma(z)=\frac{1}{1+e^{-z}}
+\end{equation}
+maps it to a number between zero and one. We can interpret
+\[
+  p = \sigma(z)
+\]
+as the model's probability assigned to class \(1\).
+
+For a target \(y\in\{0,1\}\), binary cross-entropy is
+\begin{equation}
+  \ell_{\mathrm{BCE}}(p,y)
+  = -y\log p -(1-y)\log(1-p).
+  \label{eq:week4-bce}
+\end{equation}
+If \(y=1\), the loss is small when \(p\) is near one and large when \(p\) is near zero. If \(y=0\), the roles reverse. A confidently wrong prediction is therefore penalised much more strongly than an uncertain one.
+
+The usual implementation does not require us to compute a sigmoid ourselves before the loss. Libraries combine the logit and cross-entropy calculation in a numerically stable expression. In PyTorch this is the role of \texttt{BCEWithLogitsLoss}.
+
+\begin{keyidea}
+The network should normally output logits during training. The loss function can combine the appropriate probability transformation with cross-entropy in a numerically stable way. Convert logits to probabilities separately when you need to inspect or threshold them.
+\end{keyidea}
+
+A probability is still not a class decision. At deployment we might predict class \(1\) when \(p\ge 0.5\), but \(0.5\) is a decision threshold, not a law of nature. If missing a positive example is costly, a lower threshold may be preferable; if false alarms are costly, a higher one may be appropriate. Precision and recall change as the threshold moves even though the network parameters do not.
+
+\subsection{Multi-class classification}
+
+Suppose there are \(K\) mutually exclusive classes. The network produces a vector of logits
+\[
+  \vect{z}=(z_1,\ldots,z_K).
+\]
+The softmax function converts these scores into probabilities that sum to one:
+\begin{equation}
+  p_k = \frac{e^{z_k}}{\sum_{j=1}^{K} e^{z_j}}.
+  \label{eq:week4-softmax}
+\end{equation}
+If the true class is \(c\), the cross-entropy loss is
+\begin{equation}
+  \ell_{\mathrm{CE}} = -\log p_c.
+\end{equation}
+Increasing the true-class logit helps, but because all softmax probabilities share the same denominator, the class scores compete with one another.
+
+Sigmoid and softmax therefore express different assumptions. A sigmoid treats each output as an independent yes/no probability and is appropriate for binary or multi-label problems. Softmax treats the outputs as mutually exclusive alternatives. A photograph may simultaneously contain a dog, a bicycle and a person, so independent sigmoids make sense for object presence. A handwritten digit is normally assigned one class among ten, so softmax is natural.
+
+\begin{pytorchbox}{binary and multi-class logits}
+# Binary: one logit per example
+binary_head = nn.Linear(hidden_dim, 1)
+binary_loss = nn.BCEWithLogitsLoss()
+loss = binary_loss(binary_head(h).squeeze(-1), y.float())
+
+# Multi-class: K logits per example
+multiclass_head = nn.Linear(hidden_dim, num_classes)
+multiclass_loss = nn.CrossEntropyLoss()
+loss = multiclass_loss(multiclass_head(h), class_index)
+\end{pytorchbox}
+
+\begin{optionalexercise}[title={Optional mathematics --- the clean gradient hidden inside BCE}]
+For binary cross-entropy with \(p=\sigma(z)\), show that
+\[
+  \frac{\partial \ell_{\mathrm{BCE}}}{\partial z}=p-y.
+\]
+The result is strikingly simple: the sensitivity of the loss to the logit is exactly the difference between predicted probability and target. Work through the chain rule using \(\sigma'(z)=\sigma(z)(1-\sigma(z))\).
+
+Then interpret the sign of \(p-y\) separately for \(y=0\) and \(y=1\).
+\end{optionalexercise}
+
+\section{A loss can decrease while learning goes wrong}
+
+Once classification loss is available, it is tempting to reduce neural-network engineering to a single question: did the loss go down? That question is necessary but weak.
+
+A falling loss establishes that the optimiser found parameter changes that improve the chosen objective on the examples being measured. It does not establish that the model uses the intended input, that useful information survives in hidden layers, that validation behaviour improves, or that the objective itself rewards what we care about.
+
+We need to look at the dynamics of learning, not merely its final number.
+
+\subsection{Plateaus, saddles and local minima}
+
+The loss surface of a neural network is a function over all parameter values. With millions of parameters it cannot be drawn directly, but the geometric language from Week~2 still helps.
+
+A \emph{local minimum} is a point lower than nearby alternatives. A \emph{saddle} descends in some directions and rises in others. A \emph{plateau} is a region where gradients are small and progress is slow. Neural-network loss surfaces contain many such structures, but it is misleading to imagine training primarily as a little ball repeatedly getting trapped in bad local bowls. In high dimensions there are many directions, and practical failures often come from scale, gradient flow, data, objective choice or generalisation rather than from one simple local minimum.
+
+The useful engineering question is not ``does the surface contain local minima?'' It is ``what evidence explains the trajectory I am observing?''
+
+\subsection{Vanishing and exploding gradients}
+
+Backpropagation repeatedly multiplies local derivatives. If many factors have magnitude substantially below one, a sensitivity can shrink as it travels backward. Earlier layers then receive very small gradients. If many factors are large, gradients can grow instead, producing unstable updates.
+
+These effects are called \emph{vanishing} and \emph{exploding} gradients. Their severity depends on the architecture, activation functions, parameter scales and sequence depth. We will meet architectures later that were partly invented to create easier paths for information and gradients.
+
+A gradient norm is a simple diagnostic. For a parameter tensor \(\theta\), we can monitor
+\[
+  \lVert \nabla_\theta \loss \rVert_2.
+\]
+A number close to zero is not automatically bad; a well-trained model near a stationary point may have small gradients. The informative question is whether gradients vanish in layers that still need to learn while the loss remains poor.
+
+\subsection{Dead ReLUs}
+
+ReLU gives
+\[
+  \phi(z)=\max(0,z),
+\qquad
+  \phi'(z)=
+  \begin{cases}
+    0,& z<0,\\
+    1,& z>0.
+  \end{cases}
+\]
+If one unit receives negative pre-activations for every relevant example, its activation is always zero. The local derivative is also zero, so ordinary gradient information does not pass through that unit to the parameters that determine its pre-activation. The unit is effectively silent.
+
+One zero ReLU output on one example is normal. ReLU is designed to be inactive in part of the input space. The warning sign is persistent inactivity across nearly all examples, especially when accompanied by near-zero gradient norms and little variation in the hidden representation.
+
+This illustrates a general principle: a representation can fail without producing a software error. The tensor may have the expected shape and dtype while carrying almost no useful information.
+
+\begin{figure}[ht]
+  \figureaction{Create three aligned training-diagnostic panels for a healthy and a failed tiny ReLU network. Panel 1: train/validation loss. Panel 2: hidden activation spread and fraction of zero activations. Panel 3: first-layer gradient norm. In the failed run show loss stagnation, near-zero activation spread, many zero activations and collapsed early-layer gradients.}
+  \caption{Training dynamics contain more information than a final loss. Activation spread and gradient flow can distinguish an optimisation/representation failure from an ordinary slow trajectory.}
+  \label{fig:week4-training-diagnostics}
+\end{figure}
+
+\section{Initialisation: beginning in a learnable regime}
+
+Before the first update, the network already has a geometry determined by its initial parameters. If all weights in a layer were exactly equal, many units would receive identical gradients and remain redundant. If weights are too large, activations and gradients can grow through depth; if too small, signals can shrink toward zero.
+
+Initialisation schemes therefore try to preserve a sensible scale as information moves through a network. The precise formulas are less important here than the principle.
+
+For a linear layer with \(n_{\mathrm{in}}\) inputs, Xavier-style initialisation chooses a weight scale based on both input and output width and is well matched to roughly symmetric activations such as tanh. Kaiming/He-style initialisation accounts for the fact that ReLU discards the negative half of its pre-activations and scales weights accordingly.
+
+These schemes do not magically place the model near the best solution. Their purpose is more modest and more important: begin in a regime where activations vary and gradients can propagate.
+
+Biases matter too. A sufficiently negative bias before a ReLU can push almost every pre-activation below zero, immediately silencing a layer. The Week~4 practical makes this pathology deliberately visible. The important lesson is not that one should memorise ``never use negative bias''. It is that initial conditions can determine whether the model begins in a region from which gradient-based learning has useful information.
+
+\section{Optimisers change the trajectory}
+
+The simplest update from Week~2 was stochastic gradient descent:
+\begin{equation}
+  \theta_{t+1}=\theta_t-\eta g_t,
+\end{equation}
+where \(g_t\) is a gradient estimate and \(\eta\) is the learning rate.
+
+Different optimisers transform this gradient information before applying an update. They can make training substantially easier, but they should not be treated as universal repairs for any disappointing model.
+
+\subsection{Momentum}
+
+SGD with momentum keeps a running velocity. One common form is
+\begin{align}
+  \vect{v}_{t+1} &= \mu\vect{v}_t + \vect{g}_t,\\
+  \vect{\theta}_{t+1} &= \vect{\theta}_t - \eta\vect{v}_{t+1}.
+\end{align}
+The parameter update therefore depends not only on the current gradient but also on recent gradients. Directions that persist across batches accumulate; rapid oscillations can partly cancel. Geometrically, momentum gives the optimiser inertia.
+
+\subsection{Adam and AdamW}
+
+Adam keeps moving estimates of the first and second moments of the gradient. Informally, it combines a momentum-like direction estimate with parameter-wise scaling based on recent gradient magnitude. Parameters with very different gradient scales can therefore receive updates of more comparable effective size.
+
+AdamW is commonly preferred when weight decay is desired because it separates the decay operation cleanly from the adaptive gradient transformation.
+
+The important conceptual distinction is between \emph{gradient} and \emph{update}. Backpropagation tells us local sensitivity. The optimiser decides how that sensitivity, its recent history and possibly regularisation should produce a parameter change.
+
+\subsection{Learning-rate schedules}
+
+A useful learning rate early in training need not remain useful later. Schedules change \(\eta\) over time. A step schedule reduces it at chosen milestones. A cosine schedule decreases it smoothly. One-cycle strategies first increase and later decrease the rate.
+
+The details vary, but the shared purpose is to control the scale of movement through parameter space. A larger rate can make rapid progress when the current solution is crude; a smaller rate can help refine a solution without continually overshooting.
+
+Again, a schedule cannot repair a target that contains no useful signal, a metric that rewards the wrong behaviour, or a hidden representation that has collapsed completely. Optimisation choices act on the trajectory available to them.
+
+\subsection{Curriculum learning}
+
+Most optimisation methods change how parameters respond to examples. Curriculum learning changes which examples are presented, or their difficulty, over time. A learner may first encounter easier or cleaner cases and later face harder ones.
+
+This is a useful reminder that the optimisation trajectory depends on more than the optimiser object. Batch order, sampling, data augmentation and curriculum all alter the sequence of gradient information received by the model.
+
+\begin{checkpointbox}
+A model has almost-zero first-layer gradient norm from the first batch onward, and every hidden ReLU is zero for every example. Would switching from SGD to Adam be your first diagnostic intervention? What evidence would you inspect before changing the optimiser?
+\end{checkpointbox}
+
+\section{Keeping scales under control: normalisation}
+
+Even with sensible initialisation, activation distributions change during training because the parameters feeding each layer change. Normalisation layers explicitly control some statistics of intermediate representations.
+
+The three common names in this module differ mainly in \emph{which axes are normalised}.
+
+\paragraph{Batch Normalisation.}
+BatchNorm estimates statistics using examples in the mini-batch, separately for channels or features. It has been particularly influential in convolutional networks. Because it depends on batch statistics during training, behaviour changes with batch size and the layer maintains running statistics for evaluation.
+
+\paragraph{Layer Normalisation.}
+LayerNorm normalises across the features of each individual example. It does not require other examples in the batch and is therefore natural in sequence models and many modern architectures.
+
+\paragraph{Group Normalisation.}
+GroupNorm divides channels into groups and normalises within each group for each example. It is useful when batch statistics are noisy or batch sizes are small.
+
+After normalising, these layers usually apply learned scale and shift parameters, so normalisation does not force every representation to remain permanently standardised. It provides a more controlled coordinate system from which the network can learn.
+
+The engineering question is not ``which normalisation is best?'' in the abstract. It is which statistics are meaningful and stable for the architecture and data at hand.
+
+\section{Generalisation: fitting the sample is not the final task}
+
+Optimisation concerns performance on the objective we compute during training. Generalisation concerns behaviour on examples that did not determine the fitted parameters.
+
+A model can reach nearly zero training loss by learning genuine structure, by memorising peculiar examples, by exploiting a shortcut that only exists in the training distribution, or by some mixture of these. Training performance alone cannot tell us which occurred.
+
+\subsection{Underfitting and overfitting}
+
+A model \emph{underfits} when it cannot obtain good performance even on the training data under the present training setup. The cause might be insufficient capacity, poor optimisation, an inappropriate representation or simply an impossible/noisy target.
+
+A model \emph{overfits} when training performance continues to improve while performance on held-out data stagnates or degrades. The model is becoming better adapted to the finite training sample without becoming better at the intended population-level task.
+
+The familiar picture is two curves: training loss falls steadily; validation loss falls at first and then turns upward. Useful as that picture is, overfitting need not always appear in exactly that form. Accuracy may plateau while confidence becomes more extreme. Different subgroups can degrade at different times. A shortcut feature can produce excellent training accuracy almost immediately while validation performance never becomes competitive.
+
+\begin{figure}[ht]
+  \figureaction{Draw three stylised train/validation learning-curve pairs. A: both high and flat (underfitting or optimisation failure). B: both improve and remain close (healthy generalisation). C: training keeps improving while validation worsens after a minimum (overfitting). Beneath the figure add the warning: ``curves are symptoms; inspect mechanism before assigning a cause''.}
+  \caption{Train and validation trajectories help separate fitting from generalisation, but the same curve shape can have several causes. They are evidence to combine with other diagnostics, not diagnoses by themselves.}
+  \label{fig:week4-generalisation-curves}
+\end{figure}
+
+\subsection{Capacity and the limits of the simple bias--variance cartoon}
+
+Width, depth and parameter count influence how many functions a model can express and how easily it can adapt to training examples. Increasing capacity can reduce underfitting, but it also makes it possible to fit increasingly idiosyncratic structure.
+
+A classical story therefore predicts a U-shaped test-error curve: too little capacity underfits; too much overfits. Modern overparameterised networks complicate this picture. In some regimes test error can rise near the point where the model first becomes capable of interpolating the training set and then fall again as capacity increases further, a phenomenon called \emph{double descent}.
+
+The practical lesson is not that ``bigger is always better''. It is that capacity and generalisation do not obey one universal monotonic rule. They interact with optimisation, regularisation, data volume, architecture and implicit biases of the training procedure. Validation evidence remains indispensable.
+
+\subsection{Regularisation}
+
+Regularisation changes which fitted solutions are easy or attractive.
+
+\paragraph{Weight decay.}
+Weight decay discourages large parameter magnitudes. In simple settings it corresponds closely to adding an \(L_2\) penalty to the objective. In adaptive optimisers, implementations such as AdamW decouple this decay from the gradient scaling.
+
+\paragraph{Dropout.}
+During training, dropout randomly sets a fraction of activations to zero and rescales the survivors. The network cannot rely on exactly the same set of units on every pass, which can discourage brittle co-adaptation. At evaluation time dropout is disabled.
+
+\paragraph{Data augmentation.}
+Augmentation modifies inputs while preserving the target: small image translations, crops, flips where appropriate, noise, or domain-specific transformations. It encodes an assumption that certain changes should not alter the answer. Unlike a generic penalty on parameters, augmentation regularises by changing the observed training distribution.
+
+\paragraph{Early stopping.}
+If validation performance peaks and then deteriorates, stopping at the best validation checkpoint prevents later training from replacing a more general solution with a more sample-specific one. Early stopping therefore links regularisation directly to checkpoint selection.
+
+Regularisation is not a substitute for adequate signal. If the labels are wrong, the task is ill-defined or the metric rewards an undesirable output, making the model smaller or adding dropout does not solve the specification problem.
+
+\section{Shortcuts: learning can succeed for the wrong reason}
+
+Imagine a digit classifier in which every training image of class A receives a tiny bright patch in one corner, while class B does not. The patch is highly predictive, much simpler than the digit shape, and available to the learner. A network that relies on it may achieve excellent training performance.
+
+Has learning failed? In one sense, no. The network has found a real statistical regularity in its training data and used it successfully. The failure lies in the relationship between that regularity and the deployment problem we care about.
+
+If clean validation images do not contain the patch, performance may collapse. More revealingly, we can intervene. Add the patch to clean images. Remove it. Reverse its association with the class. If predictions change dramatically while the digit itself is untouched, we have causal evidence that the model depends on the shortcut.
+
+This is stronger than merely observing a suspicious correlation between training and validation scores. It changes one candidate signal while holding the rest of the input approximately fixed.
+
+\begin{keyidea}
+A feature can be genuinely predictive and still be undesirable. Generalisation is not only about whether the model learned a pattern, but whether it learned a pattern that remains valid under the conditions in which the model will be used.
+\end{keyidea}
+
+The Week~4 shortcut practical makes this distinction deliberately artificial so it is easy to see. Real shortcuts are often less obvious: scanner marks in medical images, background context in object recognition, collection-site artefacts, author identity in text, or leakage from how labels were created.
+
+\section{Calibration: confidence is another behaviour to evaluate}
+
+Accuracy asks whether the predicted class was correct. Calibration asks whether stated probabilities correspond to empirical frequencies.
+
+Suppose a classifier assigns probability about \(0.8\) to one thousand predictions. If it is well calibrated, roughly 80\% of those events should be correct. A model can have high accuracy and still be overconfident or underconfident.
+
+A simple reliability diagram groups predictions into probability bins and compares mean confidence with observed accuracy in each bin. Perfect calibration lies near the diagonal.
+
+Calibration matters whenever a probability will be used as a degree of confidence rather than merely as an intermediate score. Threshold decisions, triage systems and risk-sensitive applications all depend on it.
+
+Calibration is also another example of the module's recurring theme: one metric does not answer every question. Accuracy, ranking quality, F1 and calibration describe different aspects of behaviour.
+
+\begin{optionalexercise}[title={Optional coding --- build a reliability diagram}]
+Take a trained binary classifier and its validation probabilities. Divide the interval \([0,1]\) into ten bins. For each non-empty bin, compute the mean predicted probability and the empirical fraction of positive outcomes. Plot one against the other together with the line \(y=x\).
+
+Then answer: can two classifiers have similar accuracy but visibly different calibration? What decision would make that difference matter?
+\end{optionalexercise}
+
+\section{Experimental discipline: ask one diagnostic question at a time}
+
+A neural-network experiment should be designed to discriminate between explanations. This sounds obvious, yet a common debugging pattern is to change the learning rate, optimiser, width, dropout, data preprocessing and loss simultaneously. If performance improves, the cause remains unknown.
+
+A more useful sequence begins with cheap, interpretable tests.
+
+\subsection{Better than what?}
+
+Compare against a trivial baseline or floor before interpreting a learned score. For classification this may be the majority class, a constant probability or a simple heuristic. For temporal prediction it may be ``same as the last step''. For image prediction it may be a constant image or copying an input.
+
+A baseline provides scale. An accuracy of \(82\%\) can be impressive if chance is \(50\%\) and embarrassing if a one-line heuristic obtains \(90\%\).
+
+\subsection{Does the output depend on the intended input?}
+
+Prediction spread is one crude test: do outputs vary across examples? A stronger test deliberately destroys or removes a candidate signal.
+
+In a \emph{permutation control}, one feature or condition is shuffled across examples while targets remain fixed. If performance barely changes, the model may not be using that signal. If performance collapses, the signal mattered to the fitted predictor.
+
+In an \emph{ablation}, we remove or neutralise a component or input source and compare behaviour. The ablation should be narrow enough that its interpretation is clear.
+
+These interventions are especially important in multimodal systems. A model given image and text can obtain good output while silently ignoring the text if the image alone is easier. A shuffled-condition test directly asks whether pairing the correct text with the correct image matters.
+
+\subsection{What is happening inside the representation?}
+
+When predictions are nearly constant, inspect hidden variation. Useful quantities include activation standard deviation across examples, fraction of zero activations, pairwise similarity between representations, and gradient norms by layer.
+
+A representation with 256 coordinates is not automatically rich. If every example maps to almost the same vector, the effective information content is tiny. Conversely, large activation variance is not automatically useful; variation must relate to the task. Internal diagnostics narrow the explanation but must be connected back to behaviour.
+
+\subsection{Train and validation answer different questions}
+
+Training loss answers: \emph{how well are we fitting the objective on examples used for optimisation?}
+
+Validation metrics answer: \emph{how well does the current fitted model behave on held-out development data?}
+
+The distinction matters for checkpoint selection. If the deployment goal is clean validation accuracy, choosing the epoch with lowest training loss can favour a later, more overfit model. The criterion used to select a checkpoint becomes part of the learning procedure.
+
+The test set must remain outside this loop. If we repeatedly choose architectures, thresholds or checkpoints based on test performance, the test set gradually becomes development data and loses its role as an independent final estimate.
+
+\subsection{Multi-task learning: one representation, several objectives}
+
+Modern systems often optimise several losses at once. Suppose one shared representation \(\vect{h}\) feeds an image head, a text head and a character-prediction head:
+\[
+  \loss = \lambda_1\loss_{\mathrm{img}}
+        + \lambda_2\loss_{\mathrm{text}}
+        + \lambda_3\loss_{\mathrm{char}}.
+\]
+Each head sends a gradient into the shared representation. Those gradients need not point in compatible directions. One objective may dominate simply because its scale is larger or because it is easier to reduce.
+
+This is \emph{multi-task competition}. A shared vector is not an unlimited neutral container. If one head can improve by collapsing or reshaping the representation in a way that harms another, the total objective may still decrease.
+
+The first response should again be diagnostic: log each loss separately, evaluate each task separately, inspect gradients or representation spread, and compare shared versus separate projections where possible. Merely increasing the width of the shared vector may hide rather than explain the conflict.
+
+\begin{architecturebox}[title={Application to the architecture --- a diagnostic cascade}]
+The StoryReasoning system offers several examples of why diagnosis must precede redesign.
+
+\textbf{1. The metric can reward the wrong answer.} On held-out next-frame windows, a constant per-pixel median image obtains image L1 around \(0.151\), while copying the last real frame is around \(0.170\). On shot cuts, a bland constant can therefore outscore a sharp frame from the same story. This is an objective/metric problem before it is an optimisation problem.
+
+\textbf{2. A representation can collapse while the program still runs.} An early 16-dimensional visual bottleneck with ReLU produced many inactive units and an almost constant latent representation. Increasing the latent width and using LayerNorm produced a much healthier representation. The relevant evidence was not merely final loss: dead-unit counts and latent spread showed that the hidden state had stopped carrying useful variation.
+
+\textbf{3. A decoder can ignore a condition.} In a later multimodal stage, text cross-entropy was almost unchanged when the conditioning signal was shuffled. The generator could model the corpus style without using the intended context. A shuffled-condition control exposed this signal-use failure immediately.
+
+\textbf{4. Pretraining can be destroyed during fine-tuning.} The visual autoencoder reconstructed frames at about \(0.040\) L1 before sequence training. Merely lowering its learning rate did not prevent reconstruction from drifting to roughly \(0.080\). Keeping a reconstruction objective active during fine-tuning held the monitor near \(0.041\). The reconstruction score acted as a health monitor for a pretrained capability.
+
+\textbf{5. The best checkpoint depends on the question.} Pixel loss began overfitting before other heads had finished learning. Selecting the checkpoint with the lowest image L1 therefore chose the wrong stage of training for the system as a whole. Validation retrieval, which better reflected the desired conditional representation, was used instead.
+
+The common pattern is more important than the specific mechanisms: establish a floor, perturb the claimed signal, inspect representation health, monitor pretrained capabilities, and select checkpoints using the metric that answers the actual question.
+\end{architecturebox}
+
+\section{A compact diagnostic workflow}
+
+When a model behaves suspiciously, the order of questions matters. Expensive interventions should come after cheap evidence.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Define the desired behaviour.} Which metric actually represents success? Could the objective reward an undesirable shortcut or average?
+  \item \textbf{Establish floors and baselines.} Does the learned model beat a constant, chance predictor or simple heuristic?
+  \item \textbf{Check input dependence.} Do predictions vary with the input? What happens if the intended signal is shuffled, permuted or ablated?
+  \item \textbf{Inspect training dynamics.} Are losses improving? Do gradients reach early layers? Are activations varied or collapsed?
+  \item \textbf{Compare train and validation.} Is the model failing to fit, or fitting without generalising?
+  \item \textbf{Inspect checkpoint choice.} Was the model selected using a metric aligned with deployment behaviour?
+  \item \textbf{Only then modify the mechanism suggested by the evidence.} Change one factor at a time when possible.
+\end{enumerate}
+
+\begin{figure}[ht]
+  \figureaction{Create a compact decision-flow diagram beginning with ``Model behaviour is poor or suspicious''. Branch through: metric/objective aligned? -> beats baseline? -> output depends on intended signal under permutation/ablation? -> activations and gradients healthy? -> train vs validation gap? -> checkpoint aligned? End branches with candidate diagnoses: objective mismatch, insufficient signal/use, optimisation/representation failure, generalisation failure, checkpoint/selection failure. Include a note: categories can overlap.}
+  \caption{A diagnostic workflow for neural-network experiments. The purpose is not to assign a label mechanically, but to order measurements so that competing explanations can be separated before redesign.}
+  \label{fig:week4-diagnostic-flow}
+\end{figure}
+
+The categories can overlap. A representation may collapse because optimisation drove ReLUs into an inactive region. A model may generalise poorly because it successfully learned a shortcut. A multi-task objective may both distort a representation and select a poor checkpoint. Diagnosis is therefore not taxonomy for its own sake. It is a way of asking which intervention is justified by evidence.
+
+\section{What to carry forward}
+
+By this point a neural network should no longer look like a single object called ``the model''. It is a coupled system:
+\[
+\text{data}
+\rightarrow \text{representation}
+\rightarrow \text{prediction}
+\rightarrow \text{objective}
+\rightarrow \text{gradients}
+\rightarrow \text{updates},
+\]
+observed through finite training and validation samples.
+
+Every arrow can fail in a different way. The data can contain a shortcut. The representation can collapse. The prediction head can ignore one condition. The objective can reward the wrong behaviour. Gradients can vanish. Updates can be too large. A model can fit the training set and fail on validation. A useful intermediate capability can drift during fine-tuning. A checkpoint can be selected by the wrong metric.
+
+This is why neural-network engineering is empirical in a deeper sense than ``try some hyperparameters''. Good experiments are designed to make explanations compete. A baseline asks whether complexity helped. A permutation asks whether a signal mattered. An activation monitor asks whether a representation remained alive. A validation curve asks whether fitting transferred beyond the training sample. An ablation asks what behaviour survives when one mechanism is removed.
+
+Week~5 will turn from these general learning-engineering questions to a particular architectural assumption: images contain local spatial structure. Convolutional networks build that assumption directly into the computation. The same discipline developed here will remain essential. An inductive bias is useful only if we can show what behaviour it changes and whether that change survives beyond the training examples.
+
+\begin{checkpointbox}
+A classifier reaches 99\% training accuracy and 71\% validation accuracy. Replacing one small corner patch in every validation image with zeros changes 40\% of its predictions; zeroing an unrelated patch changes 2\%. Its hidden activations and gradients look healthy. Which failure explanation is most strongly supported? Which tempting explanation is now less plausible?
+\end{checkpointbox}
