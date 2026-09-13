@@ -1,2 +1,450 @@
-\chapter{Explainable AI}
+\chapter{Explanation as evidence}
 \label{chap:week06}
+
+A neural network can make a correct prediction for a reason we dislike, an incorrect prediction for a reason we understand, or a useful prediction for a reason we cannot easily describe. Once models become large enough that their internal computations are not readable line by line, a new problem appears alongside prediction itself: \emph{what evidence would justify a claim about why the model behaved as it did?}
+
+This question is more difficult than it first appears. A colourful heatmap can look persuasive. A hidden unit can correlate with a concept. A linear probe can decode an attribute. An attention-like weight can become large. None of these observations, by itself, proves that the corresponding feature caused the prediction.
+
+Week~4 introduced a diagnostic habit: a symptom is not a diagnosis. This week extends the same discipline to explanation. We will distinguish several questions that are often collapsed into the word \emph{importance}: Is the output locally sensitive to a feature? Does changing the feature alter the prediction? Can information about the feature be decoded from a hidden representation? Is that information actually used by the downstream computation? Can a simpler model approximate the network near one example? What change would have altered the decision?
+
+Different methods answer different questions.
+
+\begin{keyidea}
+An explanation is not a picture attached to a prediction. It is a claim about a model, and the strength of the explanation depends on whether the evidence actually supports that claim. Whenever possible, move from inspection to a matched control or intervention.
+\end{keyidea}
+
+The aim of this chapter is therefore not to find one universally correct explanation method. It is to learn how to state explanation claims precisely enough that they can be tested.
+
+\section{What are we trying to explain?}
+
+Before choosing a method, we should name the object of explanation. Several distinctions are useful because they prevent methods from being compared as if they were interchangeable.
+
+\subsection{A prediction, a representation, or a mechanism}
+
+A \emph{prediction explanation} asks why the model produced a particular output for a particular input. Why was this image classified as an eight? Why did this frame receive a high retrieval score?
+
+A \emph{representation explanation} asks what information is present in an internal state. Does a visual embedding preserve whether a person is present? Does a hidden vector retain colour, position, identity or some nuisance variable?
+
+A \emph{mechanistic explanation} asks how internal computations transform information into behaviour. Which path carries the relevant signal? Which intermediate variables matter? Which components are necessary for the output?
+
+These are progressively stronger questions. Knowing that character presence is linearly decodable from an image embedding does not yet tell us whether a later predictor uses that information. Knowing that the final prediction changes when a hidden direction is ablated is stronger evidence of use, but still may not reveal the complete mechanism.
+
+\subsection{Local and global explanations}
+
+A \emph{local} explanation concerns one input or a small neighbourhood around it. A saliency map for one image is local. A counterfactual saying that one patient's prediction would change if one measurement changed is local.
+
+A \emph{global} explanation concerns behaviour across a population of inputs. Permutation importance measured over a whole test set is global. A statement such as ``the model generally relies on background texture'' is global and requires evidence from many examples.
+
+A model can use different evidence on different examples. A local explanation should therefore not be silently promoted into a global claim.
+
+\subsection{Model-specific and model-agnostic methods}
+
+Some methods require access to the model's internal derivatives or activations. Gradient saliency is model-specific in this sense: we must differentiate through the model.
+
+Other methods treat the predictor as a function that can be queried. We can perturb inputs, observe outputs and fit a surrogate without knowing the internal architecture. These methods are more model-agnostic, although they still depend on choices about how inputs are perturbed and which outputs are measured.
+
+\subsection{Post-hoc and intrinsically interpretable models}
+
+A \emph{post-hoc} explanation is produced after a model has been trained. Most attribution maps, local surrogates and probes belong here.
+
+An \emph{intrinsically interpretable} model is designed so that parts of the prediction process have an intended human-readable meaning. A small sparse linear model is a simple example. Some architectures introduce explicit concepts, prototypes, rules or sparse features for similar reasons.
+
+Intrinsic structure can make inspection easier, but interpretability is not automatic. A named component may not behave as intended, and a sparse feature may still combine several concepts. Inspectability remains a hypothesis until behaviour supports it.
+
+\begin{figure}[ht]
+  \figureaction{Create a compact 2-by-2 map of explanation questions. Horizontal axis: local to global. Vertical axis: output behaviour to internal representation/mechanism. Place examples such as saliency/IG, counterfactual, permutation importance, linear probe, ablation/intervention and global concept statistics in the appropriate regions. Add a note that methods overlap and answer different questions.}
+  \caption{Interpretability is not one task. Explanation methods differ in whether they concern individual predictions or population behaviour, and whether they describe outputs, representations or internal mechanisms.}
+  \label{fig:week6-explanation-map}
+\end{figure}
+
+\section{Sensitivity is not the same as importance}
+
+Consider a scalar model output \(F(\vect{x})\), perhaps a class logit. A natural first question is how that output changes when one input coordinate changes slightly. The derivative
+\[
+  \frac{\partial F}{\partial x_j}
+\]
+measures precisely this local sensitivity.
+
+For an image, the gradient with respect to every pixel gives a saliency map:
+\[
+  \nabla_{\vect{x}}F(\vect{x}).
+\]
+Large magnitudes indicate coordinates where a small local perturbation would change the chosen scalar strongly. This is useful information. But the phrase \emph{small local perturbation} matters.
+
+A feature can have been essential in moving the model into its present state while having a tiny derivative at the endpoint. Saturating nonlinearities give a simple example. If a sigmoid probability is already extremely close to one, changing the logit slightly may barely change the probability. The probability gradient can therefore be near zero even when one input feature was decisive in making the logit large.
+
+This is why an explanation should identify the scalar being differentiated. The gradient of a logit and the gradient of the corresponding probability are not the same explanation.
+
+\begin{pytorchbox}{gradient saliency explains a chosen scalar}
+x = image.clone().requires_grad_(True)
+logits = model(x)
+score = logits[0, target_class]      # state what is explained
+score.backward()
+saliency = x.grad.abs()
+\end{pytorchbox}
+
+The code is short; the interpretation is not. The gradient says what would happen under an infinitesimal change at this particular input. It does not directly tell us what caused the model to arrive at the current output, what would happen under a large meaningful change, or whether the highlighted pixels form a coherent concept.
+
+\begin{checkpointbox}
+Suppose a pixel has a gradient of zero for the class probability. Give two different explanations for why that might happen. Which additional measurement would distinguish them?
+\end{checkpointbox}
+
+\section{Integrated Gradients: explaining a change from a reference}
+
+One response to the locality problem is to accumulate gradients along a path from a reference input to the observed input. Integrated Gradients (IG) does exactly this \parencite{sundararajan2017}.
+
+Let \(\vect{x}'\) be a baseline and \(\vect{x}\) the input being explained. Along the straight-line path
+\[
+  \vect{x}(\alpha)=\vect{x}'+\alpha(\vect{x}-\vect{x}'),
+  \qquad 0\le\alpha\le1,
+\]
+the attribution to coordinate \(j\) is
+\begin{equation}
+  \mathrm{IG}_j(\vect{x})
+  = (x_j-x'_j)
+    \int_0^1
+    \frac{\partial F\!\left(\vect{x}'+\alpha(\vect{x}-\vect{x}')\right)}{\partial x_j}
+    \,d\alpha.
+  \label{eq:week6-ig}
+\end{equation}
+
+In practice the integral is approximated with a finite number of steps.
+
+IG changes the question. Vanilla saliency asks: \emph{what is the local sensitivity here?} IG asks: \emph{which coordinates account for the change in the chosen scalar between this reference and this input along this path?}
+
+Under appropriate conditions, the attributions approximately satisfy a completeness relation:
+\[
+  \sum_j \mathrm{IG}_j(\vect{x})
+  \approx F(\vect{x})-F(\vect{x}').
+\]
+This gives us a useful numerical check.
+
+But a new modelling choice has appeared: the baseline. An all-black image may be a natural absence-of-signal reference in one domain and an unrealistic image far outside the data distribution in another. A zero vector may mean ``no feature'' after one preprocessing pipeline and ``an average feature value'' after standardisation. Different defensible baselines can produce different attributions because they explain different changes.
+
+This disagreement need not mean that one computation is wrong. It may mean that two different reference questions were asked.
+
+\subsection{Expected Gradients}
+
+Expected Gradients broadens the reference idea by averaging attribution paths over a distribution of baseline examples rather than relying on one fixed reference \parencite{erion2021}. Conceptually, instead of asking ``how did the model move from this one baseline to this input?'', we ask how the input differs from many plausible reference points drawn from a background distribution.
+
+This can reduce sensitivity to one arbitrary baseline, but it does not remove the need for judgement. We must still decide what reference distribution is relevant. A background sample from the wrong population can answer the wrong question very consistently.
+
+\begin{optionalexercise}[title={Optional mathematics --- completeness for a one-dimensional path}]
+For a differentiable scalar function \(F(x)\), show that
+\[
+  (x-x')\int_0^1 F'\!\left(x'+\alpha(x-x')\right)d\alpha
+  = F(x)-F(x').
+\]
+Use the substitution \(u=x'+\alpha(x-x')\). Then explain why the multidimensional IG completeness property can be viewed as the same fundamental-theorem-of-calculus idea applied along a path.
+\end{optionalexercise}
+
+\section{Perturbation turns an explanation into a test}
+
+Attribution maps are descriptive until we ask whether changing the highlighted evidence changes behaviour.
+
+Suppose a method assigns large attribution to a patch of an image. We can occlude that patch and measure the change in the model's logit. This is stronger evidence than merely observing that the patch is bright on the heatmap.
+
+Yet even perturbation requires controls. Removing any sufficiently large region of an image may damage a classifier. If we erase the top 10\% of attributed pixels and the prediction changes, we should compare that result with removing the same number of randomly selected pixels or low-attribution pixels.
+
+A matched intervention therefore has the form
+\[
+  \text{targeted change}
+  \quad\text{versus}\quad
+  \text{comparable control change}.
+\]
+
+The comparison asks whether the explanation identifies features whose removal matters \emph{more than an equally destructive generic perturbation}.
+
+\subsection{Occlusion and feature perturbation}
+
+For images, we may mask pixels, patches or semantic regions. For tabular data, we may replace a feature with a reference value. For language, we might remove, replace or mask tokens, although the replacement itself can produce unnatural inputs.
+
+This exposes a central limitation of perturbation methods: the altered example may leave the data distribution. A black square placed over a face is not a naturally occurring face. Setting one correlated laboratory measurement to an impossible value while holding all others fixed can create an invalid patient record.
+
+The behavioural change is still real evidence about the model under that intervention, but we should not automatically interpret it as evidence about a plausible real-world change.
+
+\subsection{Permutation importance}
+
+Permutation importance is a useful global version of the same idea. For feature \(x_j\), we shuffle that feature across examples while leaving the rest of each row unchanged. The feature's values remain distributed as before, but their association with each example is broken. If test performance falls substantially, the model depended on information carried by that feature.
+
+The method asks a global question:
+\[
+  \text{How much performance is lost when this feature--example pairing is destroyed?}
+\]
+
+Correlation complicates the answer. If two features carry nearly redundant information, permuting one may have little effect because the other still supplies the signal. Conversely, independently shuffling one feature can create combinations that were rare or impossible in the original data. A small permutation importance is therefore not proof of irrelevance.
+
+\begin{figure}[ht]
+  \figureaction{Draw an evidence ladder for one image explanation. Start with a saliency/IG heatmap, then show targeted occlusion of the highlighted region, then a matched random or low-attribution occlusion, and finally a bar chart of logit drop/flip rate across many examples. Label the progression ``inspection -> intervention -> control -> aggregate evidence''.}
+  \caption{A visually plausible attribution becomes more convincing when it predicts a behavioural consequence that exceeds matched control perturbations across multiple examples.}
+  \label{fig:week6-faithfulness}
+\end{figure}
+
+\section{Local surrogate models: approximate the black box nearby}
+
+Another strategy is not to inspect derivatives at all. Instead, query the model near an input and fit a simpler model that approximates its behaviour in that neighbourhood.
+
+LIME is a canonical example \parencite{ribeiro2016}. Suppose the black-box predictor is \(F\), the input of interest is \(\vect{x}_0\), and we create perturbed points \(\vect{x}^{(i)}\). We assign larger weights to perturbations close to \(\vect{x}_0\), then fit an interpretable surrogate \(g\), often a sparse linear model, by approximately solving
+\[
+  \min_g
+  \sum_i
+  \pi_{\vect{x}_0}(\vect{x}^{(i)})
+  \left(F(\vect{x}^{(i)})-g(\vect{x}^{(i)})\right)^2
+  + \Omega(g),
+\]
+where \(\pi_{\vect{x}_0}\) gives locality weights and \(\Omega(g)\) favours a simple surrogate.
+
+The coefficients of \(g\) then describe the black box \emph{as approximated locally}.
+
+Two cautions follow immediately.
+
+First, the surrogate explains the trained model, not necessarily the true data-generating process. If the network has learned a shortcut, a faithful surrogate should reproduce that shortcut.
+
+Second, locality is a modelling choice. A very narrow neighbourhood may yield an accurate but fragile explanation. A broad neighbourhood may smooth over important nonlinear behaviour and become a poor description of the specific example.
+
+For this reason, local surrogate explanations should report their local fidelity. An explanation with a simple coefficient table but a poor fit to the model is not a successful approximation.
+
+\section{SHAP: contributions through coalitions}
+
+Shapley values originate from cooperative game theory. The basic idea is to assign each feature a contribution by asking how much it changes the prediction when added to many possible subsets, or \emph{coalitions}, of the other features. SHAP adapts this idea to model explanation \parencite{lundberg2017}.
+
+For a feature \(j\), the Shapley value is conceptually an average marginal contribution
+\[
+  \phi_j
+  = \mathbb{E}_{S}
+  \left[
+    F(S\cup\{j\})-F(S)
+  \right],
+\]
+with carefully chosen weights over subsets \(S\).
+
+This provides an appealing additive decomposition:
+\[
+  F(\vect{x})
+  \approx \phi_0 + \sum_j \phi_j,
+\]
+where \(\phi_0\) is a reference prediction.
+
+The difficult phrase is hidden in the notation \(F(S)\): what does it mean for a feature to be ``missing''? Implementations must define a background distribution or conditional expectation. With correlated features, different choices about missingness can yield different contributions. Exact Shapley computation also grows exponentially with the number of features, so practical methods use approximations or exploit model structure.
+
+SHAP is therefore not a machine for revealing a unique metaphysical importance. It is a principled answer to a particular additive attribution question under a particular treatment of missing features.
+
+\begin{checkpointbox}
+Two highly correlated features encode nearly the same signal. Why might permutation importance, a local LIME surrogate and SHAP assign them different apparent importance? The answer should refer to the question each method asks, not merely say that the methods are ``different algorithms''.
+\end{checkpointbox}
+
+\section{Counterfactual explanations}
+
+Attribution asks how credit is distributed. Counterfactual explanation asks a different question:
+
+\begin{center}
+\emph{What change to this input would have changed the model's decision?}
+\end{center}
+
+For an input \(\vect{x}\), one may seek
+\[
+  \vect{x}^{\star}
+  = \arg\min_{\tilde{\vect{x}}}
+      d(\tilde{\vect{x}},\vect{x})
+\]
+subject to the model producing a desired alternative output.
+
+This is attractive because it describes a behavioural boundary in concrete terms. But ``smallest change'' is only meaningful after defining a distance and constraints. A mathematically tiny counterfactual may be impossible in the real domain. Age cannot decrease. A medical variable cannot be changed independently of every correlated variable. An image perturbation that fools the network may not correspond to any plausible object.
+
+Good counterfactual design therefore includes feasibility and plausibility constraints, not merely optimisation against the classifier.
+
+Counterfactuals also explain the decision boundary, not necessarily the causal structure of the real world. If changing a postcode changes a loan model's decision, that demonstrates model dependence on postcode; it does not establish that changing a person's postcode would causally change their economic risk.
+
+\section{What is inside a representation? Probes}
+
+Week~5 separated an encoder from a task head. Once we have a hidden representation \(\vect{h}=E(\vect{x})\), we can ask what information is available in \(\vect{h}\).
+
+A \emph{probe} is a deliberately restricted predictor trained on frozen representations. A linear probe takes the form
+\[
+  \hat y_{\mathrm{probe}} = \mat{W}\vect{h}+\vect{b}.
+\]
+If a linear probe predicts an attribute well on held-out data, then that attribute is linearly decodable from the representation.
+
+This is useful because it separates representation learning from the probe. We do not alter the encoder; we test what a simple readout can recover.
+
+But decodability is not use.
+
+A representation may retain information because it was useful for another task, because it is correlated with useful information, or simply because the encoder had enough capacity not to discard it. The downstream classifier may ignore it completely.
+
+\begin{keyidea}
+A successful probe supports the claim ``this information is recoverable from the representation by this class of probe.'' It does not by itself support the stronger claim ``the original predictor uses this information to make its decision.''
+\end{keyidea}
+
+Probe design also requires controls. A high-capacity probe can sometimes learn structure even from weak representations. Shuffled-label controls test whether the probe pipeline is producing spurious performance. Comparisons with random or untrained encoders help determine how much decodability comes from learned representation structure rather than from architecture alone.
+
+\subsection{From probe to intervention}
+
+To test use, we need to change the relevant information and observe the original predictor.
+
+One option is input intervention: change the suspected feature while preserving other variables as carefully as possible, then measure the prediction change.
+
+Another is activation intervention: alter the hidden representation directly. We might zero selected coordinates, replace a direction, patch in an activation from another example, or remove a subspace identified by a probe.
+
+If the original output changes systematically under a targeted intervention, we have stronger evidence that the intervened information participates in the computation.
+
+Even then, care is required. Information can be distributed over many coordinates. Zeroing one neuron may do little because other units encode redundant information. Conversely, a broad ablation may damage the representation so severely that many behaviours fail at once. The best interventions change as little as possible while targeting the claim of interest.
+
+\begin{pytorchbox}{a simple hidden-state intervention}
+h = encoder(x)
+logits = head(h)
+
+h_ablated = h.clone()
+h_ablated[:, dims_to_test] = 0.0
+logits_ablated = head(h_ablated)
+
+effect = (logits_ablated - logits).abs().mean()
+\end{pytorchbox}
+
+The code measures a behavioural consequence. The difficult part is choosing \texttt{dims\_to\_test} and a control intervention that make the result interpretable.
+
+\begin{figure}[ht]
+  \figureaction{Create a three-column diagram labelled ``present'', ``decodable'', and ``used''. Column 1 shows a hidden representation containing several mixed signals. Column 2 shows a linear probe successfully reading one signal, with a shuffled-label control failing. Column 3 shows a targeted intervention on that signal and the original model output either changing or remaining stable. Emphasise that each column supports a stronger claim.}
+  \caption{Representation analysis should distinguish information being present, information being decodable by a chosen probe, and information being causally relevant to the original predictor.}
+  \label{fig:week6-probe-use}
+\end{figure}
+
+\section{Faithfulness: an explanation should predict behaviour}
+
+The word \emph{faithful} is useful because it asks whether an explanation tracks the model's actual computation rather than merely appearing plausible to a human.
+
+Suppose a heatmap consistently highlights the object in an image. That looks reassuring, but a sanity check might reveal that similar heatmaps appear after model parameters are randomised. In that case the visual structure may come partly from the input or explanation algorithm rather than from the learned decision function. Explanation methods therefore need controls just as predictive models do \parencite{adebayo2018}.
+
+Useful controls include:
+\begin{itemize}[leftmargin=*]
+  \item randomising labels or model parameters where appropriate;
+  \item comparing targeted perturbations with matched random perturbations;
+  \item comparing learned representations with random-weight representations;
+  \item checking whether a local surrogate actually matches model outputs locally;
+  \item repeating explanations across multiple examples rather than selecting one attractive case;
+  \item measuring stability under small irrelevant changes;
+  \item testing whether an explanation predicts the effect of an intervention.
+\end{itemize}
+
+The aim is not to demand impossible certainty. It is to calibrate the claim to the evidence.
+
+\section{Attention, gates and other inspectable quantities}
+
+Later chapters will introduce mechanisms that explicitly assign weights to pieces of information. Such weights are tempting to read as explanations. If one frame receives weight \(0.7\) and another receives \(0.1\), it is natural to say that the first frame ``mattered more.''
+
+That conclusion may be wrong.
+
+A weight can reflect a positional prior, a normalisation constraint, or one part of a computation whose downstream transformations change the final effect. Alternative weight patterns may sometimes produce similar outputs. For these reasons, attention weights should not automatically be equated with explanations of model behaviour \parencite{jain2019}.
+
+The same warning applies to gates, similarity scores and retrieval ranks. Inspectability is valuable: it gives us hypotheses about where to intervene. But a hypothesis becomes stronger when changing the supposedly important component changes the behaviour in the predicted direction.
+
+\begin{architecturebox}
+The StoryReasoning system eventually exposes several quantities that look explanatory: frame-selection weights, gates, latent similarities, retrieval ranks and per-character predictions. Week~6 gives us a rule for interpreting them: \emph{read them as hypotheses first}.
+
+A particularly instructive later case is frame selection. A content-dependent selector was intended to choose which of four input frames was useful for the next-frame prediction. The learned weights initially favoured a positional pattern: frame~3 was often largest. On near-copy windows, however, the selector chose the actually closest input only about \(29\%\) of the time, barely above the \(25\%\) four-way chance level. The weights were inspectable, but they did not yet justify the claim that the model was selecting the relevant frame.
+
+When explicit supervision was added, closest-input accuracy rose to about \(52\%\). Yet coupling that selector to the shared sequence state damaged text retrieval severely. The lesson is not that attention or selection weights are useless. It is that an interpretable-looking internal variable must be checked against the behaviour it is supposed to explain, and against side effects elsewhere in the system.
+
+The same logic applies to the visual representation introduced in Week~5. A probe may show that character presence is decodable from a frozen frame embedding. That is evidence about representation content. Only a later intervention on a predictor can establish whether the predictor actually uses that character information.
+\end{architecturebox}
+
+\section{Intrinsic interpretability and sparse representations}
+
+Post-hoc methods start with a complex representation and attempt to explain it afterward. Another strategy is to build representations that are easier to inspect from the beginning.
+
+Sparsity is one recurring idea. If each example activates only a small subset of features, those features may be easier to associate with recurring concepts than a dense vector in which every coordinate changes slightly for every input.
+
+A sparse autoencoder takes an existing representation \(\vect{h}\), maps it to a usually larger feature vector \(\vect{a}\), encourages most components of \(\vect{a}\) to be zero or small, and reconstructs \(\vect{h}\) from those features:
+\[
+  \vect{a}=E_s(\vect{h}),
+  \qquad
+  \hat{\vect{h}}=D_s(\vect{a}).
+\]
+The loss combines reconstruction with a sparsity penalty.
+
+The hope is that sparse features may align more cleanly with recurring directions of variation in the original dense representation. But sparsity does not guarantee semantic meaning. A sparse feature can still mix several unrelated causes, and different training runs can discover different decompositions. Week~10 will return to the geometric reason such decompositions are interesting when we study distributed representations and superposition.
+
+For now, sparse representation methods illustrate an important design principle: interpretability can influence the representation objective itself, not only the analysis performed afterward.
+
+\section{Transfer learning as a question about reusable information}
+
+Week~5 introduced pretrained encoders as a practical way to reuse visual features. Interpretability gives us a sharper question: \emph{what information has pretraining made easily accessible?}
+
+Suppose a frozen ImageNet encoder maps StoryReasoning frames to vectors. We can train a small linear probe to predict whether a frame contains one or several annotated characters. If the probe performs well on held-out stories, then character-related information is linearly accessible in the pretrained representation.
+
+Several comparisons improve the claim:
+\begin{itemize}[leftmargin=*]
+  \item a majority-class baseline asks whether the probe beats a trivial rule;
+  \item a random-weight encoder asks whether learned pretraining contributed beyond the architecture;
+  \item shuffled labels ask whether the probe pipeline can manufacture performance from noise;
+  \item held-out stories test whether decodability generalises beyond near-duplicate frames;
+  \item nearest neighbours reveal aspects of representation geometry but do not prove mechanism.
+\end{itemize}
+
+This is transfer learning viewed through an interpretability lens. A representation transfers when useful information for a new task is already organised in a form a simple head can exploit.
+
+Yet the same caution remains: transferability does not prove future use. A later StoryReasoning predictor may have access to character information and still ignore it because another signal is easier to optimise.
+
+\begin{optionalexercise}[title={Optional coding --- explanation claims as tests}]
+Take any trained classifier with at least five input features. Choose one explanation method you can implement simply: gradient magnitude, permutation importance, or a local linear surrogate.
+
+Write down the exact claim you think the method supports. Then design one matched intervention that could falsify that claim. For example, compare removal of the most highly ranked features with removal of the same number of randomly selected features across many test examples.
+
+The exercise is complete only when the explanation has been converted into a behavioural prediction.
+\end{optionalexercise}
+
+\section{A hierarchy of claims}
+
+We can now arrange several common interpretability statements by strength.
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{The model is locally sensitive to this feature.} Supported by derivatives or small perturbations around the input.
+  \item \textbf{This feature receives attribution relative to this reference/background.} Supported by methods such as IG or SHAP, under their assumptions.
+  \item \textbf{This simple surrogate approximates the model in this neighbourhood.} Supported by local fit quality.
+  \item \textbf{This information is decodable from the representation.} Supported by a probe with appropriate controls.
+  \item \textbf{Changing this feature or internal signal changes the model's output.} Supported by a targeted intervention relative to controls.
+  \item \textbf{The model generally relies on this feature across the data distribution.} Requires aggregate intervention evidence over a relevant sample.
+  \item \textbf{This feature causally matters in the real world.} This is a claim about the data-generating process, not merely about the model, and usually requires evidence beyond model interpretability methods.
+\end{enumerate}
+
+Moving down the list requires stronger evidence. The categories are not perfectly ordered in every setting, but the exercise exposes a common error: using evidence from an earlier statement to assert a later one.
+
+\begin{keyidea}
+Interpretability becomes scientifically useful when explanations make risky predictions about model behaviour: if this feature matters, changing it in a controlled way should produce a measurable consequence. A good explanation method therefore earns trust through tests, not aesthetics.
+\end{keyidea}
+
+\section{What should you ask when shown an explanation?}
+
+When presented with an attribution map, feature ranking, probe result or internal weight, ask:
+
+\begin{itemize}[leftmargin=*]
+  \item What exactly is being explained: a logit, probability, loss, class decision, hidden representation or some other scalar?
+  \item Is the claim local or global?
+  \item What baseline, background distribution or neighbourhood defines the comparison?
+  \item Does the method measure sensitivity, attribution, approximation, decodability or intervention effect?
+  \item What matched control would reveal whether the apparent pattern is special?
+  \item Could correlation or redundancy hide alternative routes for the same information?
+  \item Does the intervention keep the example within a plausible data distribution?
+  \item If the method describes a representation, has downstream use actually been tested?
+\end{itemize}
+
+These questions will remain useful long after the particular methods in this chapter have been replaced by newer ones.
+
+\section{Chapter summary}
+
+Week~5 asked what assumptions an architecture builds into visual learning. This week asked what information the resulting representations contain and what evidence allows us to say that the model uses it.
+
+The central distinctions are:
+\begin{itemize}[leftmargin=*]
+  \item local sensitivity is not the same as global importance;
+  \item attribution depends on the chosen output, reference and method;
+  \item permutation and occlusion are interventions, but still require controls and plausibility checks;
+  \item local surrogates approximate model behaviour near an example rather than reveal the true data-generating rule;
+  \item counterfactuals describe decision-changing alternatives, not necessarily causal real-world changes;
+  \item a probe establishes decodability, not downstream use;
+  \item ablation and intervention strengthen claims by testing behavioural consequences;
+  \item inspectable internal quantities such as attention weights or gates are hypotheses, not explanations by default;
+  \item sparse or intrinsically interpretable representations can make analysis easier, but still require validation;
+  \item transfer learning can be understood as reusable information becoming accessible to a new head.
+\end{itemize}
+
+The habit to carry forward is simple: whenever an explanation looks convincing, ask what observable consequence should follow if it is true.
