@@ -82,6 +82,8 @@ Week 4 establishes an important boundary for later development: students meet St
 
 Week 5 introduces the first learned visual component: students build a modest convolutional encoder/autoencoder, train it once by reconstruction, then freeze it and reuse cached latent vectors for simple visual retrieval. Keep the decoder as concise scaffolding around the studied encoder. Retrieval may compare candidate frames by visual similarity, but must **not** introduce a trained next-frame predictor, recurrent sequence model, attention, multimodal fusion or language encoder yet. The intended endpoint is that students can distinguish visual representation from temporal/story reasoning.
 
+Week 6 focuses on evidence about representations and predictions. Students may use gradient/Integrated-Gradient attribution, perturbation/permutation controls, local surrogates, counterfactuals, probes and interventions. A frozen pretrained visual encoder may be introduced for transfer/probing on StoryReasoning, but probe performance must be described as **decodability**, not automatically as causal use or mechanistic understanding. Keep sequence memory, attention and multimodal fusion for later weeks; Week 6 should make students sceptical of explanations that are not tested against controls.
+
 A useful exercise pattern is: **provided system → missing/changing component → observable consequence**.
 
 ## Pedagogical continuity
