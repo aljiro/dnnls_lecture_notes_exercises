@@ -44,6 +44,7 @@ AI-generated code is therefore a means rather than the endpoint. The exercises s
 ## Repository structure
 
 - `ARCHITECTURE_NARRATIVE.md` — the pedagogical architecture reference that connects ideas across the module.
+- `assessment/` — assessment brief, student Colab notebook, Gemini collaboration instructions, architecture-import guidance, and submission templates for the independent architecture investigation.
 - `curriculum/` — module-level pedagogical design, weekly map, and conceptual progression.
 - `lecture_notes/` — the LaTeX lecture notes.
   - `main.tex` — master document that assembles the full set of notes.
