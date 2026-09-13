@@ -1,2 +1,588 @@
-\chapter{Autoencoders and Generative AI}
+\chapter{From one prediction to a distribution}
 \label{chap:week08}
+
+Week~7 ended with an apparently modest observation: a language model does not contain one next word. It assigns a distribution over possible next tokens, and a decoding rule turns that distribution into an actual continuation. Sampling twice from the same model can therefore produce two different, defensible answers.
+
+For images and other high-dimensional continuous targets, the same idea is harder to see. A regression network usually emits one vector. An image predictor emits one array of pixels. If the future is uncertain, where should a second possible answer come from? More importantly, what objective would persuade a model to preserve several alternatives instead of averaging them into one compromise?
+
+This is the problem of generative modelling. The change is conceptual before it is architectural. We stop asking only for a function
+\[
+  \hat{\vect{y}} = f_\theta(\vect{x})
+\]
+and ask instead for a distribution
+\[
+  p_\theta(\vect{y}\mid\vect{x})
+\]
+from which different plausible outputs can be sampled.
+
+That distinction matters whenever the observations do not determine one unique target. A short story can plausibly cut to several camera views. A text prompt can correspond to innumerable valid images. A partially observed scene may have several reasonable completions. In such settings, uncertainty is not merely measurement noise around one hidden answer. It can be part of the structure of the task.
+
+\begin{keyidea}
+A point predictor must commit to one output. A generative model tries to represent how probability is distributed over many possible outputs. When the target is multimodal, the difference between these two jobs can be the difference between an average that is numerically safe and a sample that is actually plausible.
+\end{keyidea}
+
+This chapter develops that idea through four mechanisms. We begin with deterministic autoencoders, which learn useful latent representations but do not by themselves define a sampling rule. We then introduce variational autoencoders, where a latent variable turns reconstruction into a probabilistic model. GANs approach distribution matching through an adversarial game. Diffusion models approach it through repeated corruption and denoising. Finally, we ask how these models can be conditioned on labels, text or other modalities, and how one should evaluate a model whose purpose is to produce more than one answer.
+
+\section{One recorded target does not imply one possible future}
+
+A supervised dataset normally records one target \(\vect{y}_i\) for each input \(\vect{x}_i\). It is tempting to conclude that the learning problem therefore has one correct output per input. This is not necessarily true.
+
+Imagine repeatedly observing almost the same four-frame dialogue context in different films. Sometimes the next shot cuts to the speaker. Sometimes it cuts to the listener. Sometimes it remains on the current shot. The dataset records only the continuation that happened in one particular story, but the conditional process
+\[
+  p(\vect{y}\mid\vect{x})
+\]
+may place substantial probability on several distinct outcomes.
+
+A distribution with several separated high-probability regions is called \emph{multimodal}. The word ``mode'' here means a region of high probability, not an input modality such as image or text. A multimodal future might contain several sharp image families separated by outputs that almost never occur.
+
+This creates a difficulty for ordinary regression. A deterministic predictor has one output location. Training losses decide where that single output should sit relative to the distribution of possible targets.
+
+\subsection{Squared error predicts a conditional mean}
+
+Suppose, for the moment, that the target is a scalar random variable \(Y\) and the input \(X=x\) is fixed. We choose one deterministic prediction \(a\) and minimise expected squared error:
+\[
+  \mathbb{E}\left[(Y-a)^2\mid X=x\right].
+\]
+Let
+\[
+  \mu(x)=\mathbb{E}[Y\mid X=x].
+\]
+Then
+\begin{align}
+\mathbb{E}\left[(Y-a)^2\mid x\right]
+&= \mathbb{E}\left[(Y-\mu+\mu-a)^2\mid x\right]\\
+&= \operatorname{Var}(Y\mid x) + (\mu-a)^2.
+\end{align}
+The variance term does not depend on \(a\). The expected loss is therefore minimised by
+\[
+  a=\mu(x).
+\]
+Mean-squared error is not ``making the model blurry'' by accident. It is doing exactly what its specification asks: among all single point predictions, choose the conditional mean.
+
+For absolute error, the corresponding optimal point is a conditional median. This can be more robust to outliers, but it does not remove the fundamental restriction that only one point is emitted.
+
+Now consider an equal mixture with targets near \(-1\) and \(+1\), but almost no data near zero. The mean is near zero. The MSE-optimal point can therefore fall in a region that the data-generating process itself rarely produces.
+
+The same effect in pixel space is visually striking. If two plausible futures contain an object in different locations, a pixelwise average combines their intensities. Edges can double, colours mix, and the result may resemble neither future. With many possible images, the compromise can become a smooth generic picture.
+
+\begin{figure}[ht]
+  \figureaction{Create a two-part figure. Left: for one fixed condition x, show a one-dimensional target density with two separated modes and mark the conditional mean in the low-density gap. Right: show two sharp but different plausible image futures A and B, with a simple pixelwise average between them that looks visibly less plausible than either endpoint. Label the average as a point-estimation optimum rather than a third mode.}
+  \caption{When several targets are plausible, a point loss can place the optimal deterministic prediction between modes. The numerical optimum need not resemble a likely sample from the data distribution.}
+  \label{fig:week8-point-average}
+\end{figure}
+
+\begin{optionalexercise}[title={Optional mathematics --- why the mean appears}]
+For fixed \(x\), let \(Y\) have any distribution with finite variance. Starting from
+\[
+  R(a)=\mathbb{E}[(Y-a)^2\mid x],
+\]
+differentiate with respect to \(a\) and show that the stationary point is \(a=\mathbb{E}[Y\mid x]\). Check that it is a minimum.
+
+Then consider a distribution that places probability \(0.8\) at \(Y=-1\) and probability \(0.2\) at \(Y=+1\). Compute the MSE-optimal point. Is that point itself one of the possible observations?
+\end{optionalexercise}
+
+\subsection{The irreducible part of point prediction}
+
+The decomposition above also tells us something deeper. Even the optimal point predictor retains an expected error equal to the conditional variance:
+\[
+  \min_a \mathbb{E}[(Y-a)^2\mid x]
+  = \operatorname{Var}(Y\mid x).
+\]
+If the future is genuinely uncertain, no better optimiser can remove that uncertainty from a single deterministic prediction. A larger network may estimate the conditional mean more accurately, but it is still estimating a mean.
+
+This is an important diagnostic distinction. Poor point predictions can arise because the model class is inadequate, because optimisation failed, because the representation discarded information, or because the task itself admits several futures. Generative modelling addresses the last case by changing what the model is asked to represent.
+
+\section{Autoencoders: reconstruction is not yet generation}
+
+Week~5 introduced the autoencoder as a representation-learning device. An encoder maps an observation to a latent code,
+\[
+  \vect{z}=E_\phi(\vect{x}),
+\]
+and a decoder maps the code back to a reconstruction,
+\[
+  \hat{\vect{x}}=D_\theta(\vect{z}).
+\]
+Training minimises a reconstruction objective such as
+\[
+  \loss_{\mathrm{recon}}
+  = \|D_\theta(E_\phi(\vect{x}))-\vect{x}\|_1.
+\]
+If reconstruction is good and the bottleneck is restrictive, the latent can become a compact description of the input.
+
+It is easy to look at this encoder--latent--decoder structure and conclude that the model is generative. After all, the decoder can turn a vector into an image. But a decoder is only useful for generation if we know how to choose vectors that correspond to plausible data.
+
+A deterministic autoencoder does not usually provide such a rule.
+
+\subsection{The latent space may have holes}
+
+The encoder visits a particular set of latent locations while training. Nothing in ordinary reconstruction loss requires these codes to fill a simple region, to be centred around zero, or to resemble a standard Gaussian distribution. Different parts of latent space may be occupied by complicated curved clusters with empty regions between them.
+
+Suppose the latent has eight dimensions. We may be tempted to draw
+\[
+  \vect{z}\sim\mathcal{N}(\vect{0},\mat{I})
+\]
+and feed the result to the decoder. But unless the training objective explicitly made the encoded data compatible with that distribution, this sampling rule is arbitrary. The sampled vector may land far from every code the decoder saw during training.
+
+A neural decoder will still return numbers. That is not evidence that the numbers form a plausible sample.
+
+Latent interpolation illustrates the same distinction. If we encode two real observations and move along the line between their codes, the decoder may produce a smooth visual transition. This tells us something about the local geometry between those two known points. It does not tell us the probability with which different latent regions should be sampled.
+
+\begin{keyidea}
+An autoencoder answers ``can this observation be compressed and reconstructed?'' A generative model must additionally answer ``from which latent values should new observations be produced, and with what probabilities?''
+\end{keyidea}
+
+\begin{checkpointbox}
+A deterministic autoencoder reconstructs MNIST digits almost perfectly. You sample \(100\) vectors from \(\mathcal{N}(0,I)\), decode them, and most outputs are malformed.
+
+Which conclusion is best supported?
+\begin{enumerate}[leftmargin=*]
+  \item The decoder is necessarily too weak.
+  \item Reconstruction training succeeded, but the chosen normal distribution was not guaranteed to match the region occupied by encoded data.
+  \item The optimiser failed because generation and reconstruction are the same objective.
+\end{enumerate}
+The second conclusion separates representation learning from distribution modelling.
+\end{checkpointbox}
+
+\section{Latent variables: put the alternatives inside the model}
+
+A natural way to represent several possible outputs is to introduce a random latent variable \(\vect{z}\). Instead of mapping one condition directly to one output, we describe a two-stage process:
+\[
+  \vect{z} \sim p(\vect{z}),
+  \qquad
+  \vect{x} \sim p_\theta(\vect{x}\mid\vect{z}).
+\]
+Different draws of \(\vect{z}\) can lead to different observations.
+
+The joint model is
+\[
+  p_\theta(\vect{x},\vect{z})
+  = p(\vect{z})p_\theta(\vect{x}\mid\vect{z}),
+\]
+and the probability assigned to an observation is obtained by marginalising the latent:
+\begin{equation}
+  p_\theta(\vect{x})
+  = \int p(\vect{z})p_\theta(\vect{x}\mid\vect{z})\,d\vect{z}.
+  \label{eq:week8-latent-marginal}
+\end{equation}
+
+This simple equation captures the generative idea. The observed image does not need to identify one unique hidden cause. Many latent values may contribute probability to similar observations, and the prior tells us how likely different latent values are before seeing the observation.
+
+We now have two complementary inference questions.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Generation:} draw \(\vect{z}\) from the prior and decode it into an observation.
+  \item \textbf{Inference:} after observing \(\vect{x}\), infer which latent values could plausibly have produced it, that is, reason about \(p_\theta(\vect{z}\mid\vect{x})\).
+\end{itemize}
+
+The second question creates the central computational problem. For a flexible neural decoder, the exact posterior
+\[
+  p_\theta(\vect{z}\mid\vect{x})
+  = \frac{p(\vect{z})p_\theta(\vect{x}\mid\vect{z})}{p_\theta(\vect{x})}
+\]
+contains the marginal likelihood from \cref{eq:week8-latent-marginal}, an integral that is generally expensive or intractable to evaluate exactly.
+
+The variational autoencoder is a practical answer to that difficulty.
+
+\section{Variational autoencoders: make the latent sampleable}
+
+A variational autoencoder (VAE) combines a probabilistic decoder with a learned approximation to the posterior \parencite{kingma2014}. The architecture resembles an autoencoder, but the latent interface has changed fundamentally.
+
+Instead of producing one code \(\vect{z}\), the encoder produces parameters of a distribution. In the common diagonal-Gaussian form,
+\[
+  q_\phi(\vect{z}\mid\vect{x})
+  = \mathcal{N}\!\left(
+      \vect{\mu}_\phi(\vect{x}),
+      \operatorname{diag}(\vect{\sigma}_\phi^2(\vect{x}))
+    \right).
+\]
+This distribution is called the \emph{approximate posterior}. The prior is often chosen to be the simple standard normal
+\[
+  p(\vect{z})=\mathcal{N}(\vect{0},\mat{I}).
+\]
+The decoder specifies \(p_\theta(\vect{x}\mid\vect{z})\).
+
+Training now has two jobs. The latent sampled from the posterior must contain enough information to reconstruct the observation, but the collection of posteriors should also remain compatible with the prior from which we intend to sample later.
+
+\subsection{Reconstruction and KL play different roles}
+
+The standard VAE objective can be written as the negative evidence lower bound,
+\begin{equation}
+  \loss_{\mathrm{VAE}}
+  =
+  -\mathbb{E}_{q_\phi(\vect{z}\mid\vect{x})}
+     \left[\log p_\theta(\vect{x}\mid\vect{z})\right]
+  +
+  D_{\mathrm{KL}}\!\left(
+    q_\phi(\vect{z}\mid\vect{x})
+    \;\|\;
+    p(\vect{z})
+  \right).
+  \label{eq:week8-vae-loss}
+\end{equation}
+
+The first term is a reconstruction or negative log-likelihood term. It rewards latents that allow the decoder to account for the particular observation.
+
+The second term is the Kullback--Leibler divergence. It penalises a posterior that departs too strongly from the chosen prior. Informally, it asks the encoder not to hide each training example in an arbitrary isolated region that the prior will almost never visit.
+
+The two pressures compete. Perfect reconstruction would be easiest if every observation could occupy a highly specific code with no concern for global organisation. Easy prior sampling would be simplest if every posterior looked exactly like the prior, but then the latent might contain little information about the input.
+
+A VAE therefore turns the bottleneck into a negotiated interface between information about one observation and a shared sampling distribution.
+
+\begin{figure}[ht]
+  \figureaction{Draw a VAE diagram with an input x entering an encoder that outputs mu and log-variance. Show epsilon sampled from N(0,I) entering a reparameterisation node z = mu + sigma * epsilon, then a decoder producing x-hat. Draw a separate standard-normal prior beside z. Label the two training pressures: reconstruction from x-hat to x, and KL from q(z|x) toward p(z). Add a second small inference panel showing generation: sample z from p(z) and decode without an input x.}
+  \caption{A VAE trains an approximate posterior for reconstruction while regularising it toward a prior that can be sampled at generation time. The encoder is needed during training/inference on observed data; unconditional generation can begin directly from the prior.}
+  \label{fig:week8-vae}
+\end{figure}
+
+\subsection{The reparameterisation trick}
+
+There is a technical obstacle. We want gradients to change \(\vect{\mu}_\phi\) and \(\vect{\sigma}_\phi\), but a random sampling operation appears between those parameters and the decoder.
+
+For a Gaussian posterior we can move the randomness into a parameter-free variable:
+\begin{equation}
+  \vect{\epsilon}\sim\mathcal{N}(\vect{0},\mat{I}),
+  \qquad
+  \vect{z}
+  = \vect{\mu}_\phi(\vect{x})
+    + \vect{\sigma}_\phi(\vect{x})\odot\vect{\epsilon}.
+  \label{eq:week8-reparam}
+\end{equation}
+Now a sampled \(\vect{\epsilon}\) is treated as an input to an ordinary differentiable computation. Gradients can flow through multiplication and addition into the encoder parameters. This is the \emph{reparameterisation trick}.
+
+Implementations usually predict \(\log \sigma^2\), often called \texttt{logvar}, rather than \(\sigma\) directly. Exponentiating half the log-variance gives the standard deviation while guaranteeing positivity:
+\[
+  \vect{\sigma}=\exp\!\left(\tfrac12\vect{\text{logvar}}\right).
+\]
+
+\begin{pytorchbox}{the visible VAE mechanism}
+mu, logvar = encoder(x)
+std = torch.exp(0.5 * logvar)
+eps = torch.randn_like(std)
+z = mu + std * eps
+x_hat = decoder(z)
+
+recon = reconstruction_loss(x_hat, x)
+kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum(dim=1)
+loss = recon.mean() + beta * kl.mean()
+\end{pytorchbox}
+
+The code is short because much of the idea lives in the objective. The same decoder architecture can behave very differently depending on how strongly the latent is regularised.
+
+\subsection{How much KL?}
+
+It is common to use a coefficient \(\beta\),
+\begin{equation}
+  \loss
+  = \loss_{\mathrm{recon}}
+  + \beta D_{\mathrm{KL}}(q\|p),
+  \label{eq:week8-beta}
+\end{equation}
+so that the balance can be controlled explicitly.
+
+If \(\beta\) is too small, the posterior can become extremely informative about each training target while drifting far from the prior. Reconstruction may look excellent because the encoder knows exactly which target it saw, yet samples drawn from the prior at test time may land in irrelevant regions. This is \emph{prior--posterior mismatch}.
+
+If the pressure toward the prior is too strong, the approximate posterior may become nearly independent of the input. In an extreme case,
+\[
+  q_\phi(\vect{z}\mid\vect{x})\approx p(\vect{z})
+\]
+for every \(\vect{x}\), so the latent conveys little useful information. When a powerful decoder learns to ignore \(\vect{z}\), this is called \emph{posterior collapse}.
+
+A small KL value is therefore not automatically good. Neither is a large KL value. The number must be interpreted alongside reconstruction, prior samples, posterior samples and sample diversity.
+
+KL warm-up is one practical response: begin training with a small KL weight and increase it gradually, allowing the reconstruction path to become useful before applying the full regularising pressure. Other mechanisms, such as free bits, prevent small amounts of information in latent dimensions from being penalised too aggressively. The details vary, but the underlying problem is always the same negotiation between information and sampleability.
+
+\begin{optionalexercise}[title={Optional mathematics --- diagonal Gaussian KL}]
+For
+\[
+q(\vect{z})=\mathcal{N}(\vect{\mu},\operatorname{diag}(\vect{\sigma}^2)),
+\qquad
+p(\vect{z})=\mathcal{N}(\vect{0},\mat{I}),
+\]
+the KL divergence is
+\[
+D_{\mathrm{KL}}(q\|p)
+=\frac12\sum_j
+\left(\mu_j^2+\sigma_j^2-1-\log\sigma_j^2\right).
+\]
+Inspect one term at a time. What values of \(\mu_j\) and \(\sigma_j\) minimise it? Why does a KL-only objective erase input-specific information? Then explain why adding reconstruction prevents the trivial solution from being automatically optimal for the full VAE objective.
+\end{optionalexercise}
+
+\section{Conditional generation: a distribution that depends on context}
+
+Unconditional generation asks for plausible data in general. Many useful tasks are conditional. We may want an image matching a class label, a picture matching a text description, or a next frame compatible with the preceding story.
+
+Let \(\vect{c}\) denote the condition. The desired object is
+\[
+  p_\theta(\vect{y}\mid\vect{c}).
+\]
+A conditional VAE can make the prior itself depend on context:
+\begin{align}
+  p_\psi(\vect{z}\mid\vect{c}),\qquad
+  q_\phi(\vect{z}\mid\vect{y},\vect{c}),\qquad
+  p_\theta(\vect{y}\mid\vect{z},\vect{c}).
+\end{align}
+The posterior sees both the condition and the realised target during training. The prior sees only the condition.
+
+At first this can look like target leakage. Why is one part of the network allowed to look at the answer?
+
+Because the posterior is a training-time inference mechanism. Its job is to say which latent alternatives explain the target that actually occurred. The KL term then pressures the condition-only prior to place probability in similar regions. At test time the target is unavailable, the posterior is discarded, and samples come from
+\[
+  \vect{z}\sim p_\psi(\vect{z}\mid\vect{c}).
+\]
+The privileged target information is useful only if the prior learns to imitate the relevant posterior distribution well enough to generate without it.
+
+This gives us a direct diagnostic. Compare posterior-sample quality with prior-sample quality. If posterior reconstructions are excellent while prior samples are poor, the target-aware inference network learned information that the test-time prior did not successfully capture.
+
+\subsection{Conditioning can still be ignored}
+
+Week~7 showed that a language decoder can be connected to a condition and nevertheless ignore it. The same danger exists in visual generation.
+
+A model might produce diverse, realistic-looking samples that depend mainly on the unconditional training distribution. Diversity alone does not prove conditional generation. If the task is ``generate the next frame given this story'', the samples must change appropriately when the story changes.
+
+A shuffled-condition control remains powerful:
+\begin{enumerate}[leftmargin=*]
+  \item evaluate samples with the correct condition;
+  \item pair each target with an unrelated condition;
+  \item keep the trained model unchanged;
+  \item compare conditional metrics, retrieval and sample behaviour.
+\end{enumerate}
+If shuffling the condition changes little, the generator may have learned a useful unconditional model while failing the conditional task.
+
+\begin{architecturebox}
+The StoryReasoning image branch makes the reason for a conditional distribution unusually concrete. The fifth frame is a different shot in roughly \(85\%\) of windows, so a deterministic pixel-L1 predictor is rewarded for a smooth compromise. The visual encoder and decoder from Week~5 can already represent individual frames; Week~8 changes only the uncertain part of the prediction.
+
+A recurrent context state \(\vect{h}\) summarises the four observed steps. A conditional prior \(p(\vect{z}\mid\vect{h})\) predicts a Gaussian residual distribution. During training, a posterior \(q(\vect{z}\mid\vect{h},\vect{z}_{\mathrm{target}})\) is additionally allowed to inspect the frozen target-frame latent. A sampled residual and the context produce a predicted visual latent, which the inherited decoder can map back to pixels.
+
+The KL weight becomes an empirical knob. With too little pressure, the posterior can encode the target while the prior fails to follow it. In the architecture experiments, \(\beta=10^{-3}\) left a KL of about \(124\) nats and prior samples were diverse but poorly tied to the context. Around \(\beta=10^{-2}\), the KL fell to about \(10.8\) nats; the average prior-sample L1 reached about \(0.146\), and the \textbf{best of \(K=5\)} reached about \(0.125\), below the roughly \(0.13\) deterministic ceiling observed for the task.
+
+The important mechanism is not the exact number. The posterior shows what latent alternatives explain the realised target; the KL teaches the context-only prior to cover those alternatives; sampling exposes several futures instead of compressing them into one average. As always, \(K\) must be reported with a best-of-\(K\) result.
+\end{architecturebox}
+
+\section{GANs: learn through a critic rather than reconstruction}
+
+Variational autoencoders define a latent-variable model and train it through a likelihood-related objective. Generative adversarial networks (GANs) take a different route \parencite{goodfellow2014}.
+
+A \emph{generator} \(G_\theta\) maps random noise to samples,
+\[
+  \vect{z}\sim p(\vect{z}),
+  \qquad
+  \tilde{\vect{x}}=G_\theta(\vect{z}).
+\]
+A \emph{discriminator} \(D_\phi\) is trained to distinguish real data from generated samples. In the original formulation, the two players optimise an adversarial objective of the form
+\begin{equation}
+  \min_G\max_D
+  \mathbb{E}_{\vect{x}\sim p_{\mathrm{data}}}\![\log D(\vect{x})]
+  +
+  \mathbb{E}_{\vect{z}\sim p(\vect{z})}\![\log(1-D(G(\vect{z})))] .
+  \label{eq:week8-gan}
+\end{equation}
+The discriminator becomes a learned signal that says, in effect, which differences between generated and real samples still make them distinguishable.
+
+The appealing idea is that we no longer have to specify a pixelwise distance that says how one generated image should resemble one particular target. The discriminator can reward distribution-level properties that make samples look like the data.
+
+The price is a coupled optimisation problem. The generator's objective changes as the discriminator changes, and vice versa. If the discriminator becomes too strong, the generator can receive unhelpful gradients. If the generator discovers a small family of outputs that repeatedly fools the discriminator, it may neglect other legitimate regions of the data distribution.
+
+This latter failure is called \emph{mode collapse}. A generator might produce sharp, convincing faces while producing only a narrow subset of identities or poses. Fidelity can be high while diversity is poor.
+
+GANs therefore reinforce an important Week~8 lesson: sample quality is not one-dimensional. A model can generate excellent individual examples and still represent the distribution badly.
+
+Conditional GANs introduce a condition to both generator and discriminator. The generator then tries to create samples that are realistic \emph{and} compatible with the condition. The same diagnostic rule applies: changing or shuffling the condition should change the generated distribution in a measurable way.
+
+\section{Diffusion: generation as repeated denoising}
+
+Diffusion models take yet another approach. Instead of learning one direct jump from random noise to a data sample, they construct generation as a sequence of many small denoising steps \parencite{ho2020}.
+
+The method begins with a simple corruption process. Starting from clean data \(\vect{x}_0\), progressively add Gaussian noise to obtain
+\[
+  \vect{x}_1,\vect{x}_2,\ldots,\vect{x}_T.
+\]
+With a suitable noise schedule, later states become increasingly close to an easy reference distribution such as a standard Gaussian.
+
+A useful closed-form expression lets us sample a noisy version at time \(t\) directly:
+\begin{equation}
+  \vect{x}_t
+  = \sqrt{\bar\alpha_t}\,\vect{x}_0
+    + \sqrt{1-\bar\alpha_t}\,\vect{\epsilon},
+  \qquad
+  \vect{\epsilon}\sim\mathcal{N}(0,I),
+  \label{eq:week8-forward-diffusion}
+\end{equation}
+where \(\bar\alpha_t\) records how much clean signal remains after the scheduled corruption.
+
+The forward process is easy because we choose it. The learning problem is to reverse it.
+
+\subsection{Predict the corruption}
+
+A common denoising model receives a noisy sample \(\vect{x}_t\) and the timestep \(t\), and predicts the noise that was added:
+\[
+  \vect{\epsilon}_\theta(\vect{x}_t,t).
+\]
+A simple training objective is
+\begin{equation}
+  \mathbb{E}_{\vect{x}_0,\vect{\epsilon},t}
+  \left[
+    \|\vect{\epsilon}-\vect{\epsilon}_\theta(\vect{x}_t,t)\|_2^2
+  \right].
+  \label{eq:week8-diffusion-loss}
+\end{equation}
+The timestep matters because the same visible perturbation has a different meaning when the sample is almost clean than when nearly all original structure has been destroyed.
+
+At generation time, begin with noise and repeatedly apply the learned reverse update. Structure emerges gradually as the model removes predicted noise across a sequence of timesteps.
+
+\begin{figure}[ht]
+  \figureaction{Create a horizontal diffusion diagram. Top row, left-to-right: a clean sample gradually becomes noisier across four labelled timesteps until it resembles Gaussian noise; label this fixed forward corruption q. Bottom row, right-to-left: start from noise and show a learned denoiser making several reverse steps toward a structured sample; label the model $\epsilon_\theta(\vect{x}_t,t)$. Include the condition c entering the denoiser as an optional side arrow, but do not show transformer internals.}
+  \caption{Diffusion makes generation an iterative reverse process. Training observes clean data corrupted to many noise levels; sampling begins from noise and repeatedly applies learned denoising steps.}
+  \label{fig:week8-diffusion}
+\end{figure}
+
+The mechanism differs sharply from a VAE. A VAE normally samples one latent and decodes in one pass. A diffusion sampler performs many network evaluations. This makes sampling computationally heavier, although modern samplers can reduce the number of required steps substantially.
+
+The iterative path also provides a different modelling advantage. Rather than asking one network call to place a random point directly onto a complicated data manifold, the model learns a family of local denoising directions across corruption levels.
+
+\subsection{Conditioning a denoiser}
+
+A denoiser can receive extra information \(\vect{c}\): a class label, text embedding, low-resolution image, depth map or some other context. The prediction becomes
+\[
+  \vect{\epsilon}_\theta(\vect{x}_t,t,\vect{c}).
+\]
+The reverse trajectory is then steered toward samples that are plausible under the condition.
+
+Classifier-free guidance is one widely used method for strengthening this steering. During training, the condition is sometimes omitted so the same model learns conditional and unconditional denoising. During sampling, one can combine the two predictions schematically as
+\[
+  \hat{\vect{\epsilon}}
+  = \vect{\epsilon}_{\mathrm{uncond}}
+    + s\left(
+       \vect{\epsilon}_{\mathrm{cond}}
+       - \vect{\epsilon}_{\mathrm{uncond}}
+      \right),
+\]
+where \(s\) controls guidance strength. Larger \(s\) pushes more strongly toward features associated with the condition, but excessive guidance can reduce diversity or introduce artefacts. Guidance is therefore another trade-off, not a free quality knob.
+
+\section{CLIP: align modalities without generating either one}
+
+Conditional generation often depends on a representation that lets two modalities communicate. A text-conditioned image model needs some numerical form of the text. An image--text retrieval system needs image and text representations that can be compared.
+
+CLIP is a useful example of this representational role \parencite{radford2021clip}. It contains an image encoder and a text encoder trained on paired image--text data. The learning objective encourages the embedding of a matched image and caption to have high similarity while mismatched pairs in the batch have lower similarity.
+
+The result is an approximately aligned representation space:
+\[
+  \vect{v}_{\mathrm{image}},\vect{v}_{\mathrm{text}}\in\R^d,
+\]
+where cosine similarity can be used to rank cross-modal matches.
+
+CLIP is not, by itself, an image generator. It maps observations into a shared comparison space. That space can nevertheless serve several roles around generation:
+\begin{itemize}[leftmargin=*]
+  \item a text embedding can condition another generative model;
+  \item image and text embeddings can support cross-modal retrieval;
+  \item similarity can provide one evaluation signal for whether an image reflects a prompt;
+  \item pretrained embeddings can provide a useful latent space when pixel generation would obscure the mechanism under study.
+\end{itemize}
+
+The final point is especially important pedagogically. Working in a frozen visual embedding space can let us study whether a stochastic predictor covers several plausible futures without also asking students to build a high-quality image decoder.
+
+Aligned embedding spaces also have limits. High CLIP similarity is not a universal definition of image quality. It can miss fine visual errors, inherit biases from pretraining data, and reward semantic compatibility while ignoring other requirements. A representation-based metric is still a specification, and Week~2's lesson has not gone away.
+
+The contrastive mechanics that create such shared spaces will return in Week~9 under self-supervised objectives. For now, the important idea is the separation of roles: representation alignment can make conditioning or retrieval easier without itself solving generation.
+
+\section{How should a generative model be evaluated?}
+
+A deterministic regressor can often be summarised by one average error. A generator creates a set or distribution of outputs, so evaluation must ask several questions at once.
+
+\subsection{Fidelity and diversity}
+
+Two broad properties are useful.
+
+\emph{Fidelity} asks whether individual samples resemble plausible data or satisfy the condition. A nearest-neighbour distance in a sensible representation, a reconstruction error in a matched setting, or a human judgement may provide evidence here.
+
+\emph{Diversity} asks whether the model covers the range of plausible outcomes rather than repeating a narrow subset. Pairwise sample distances, mode coverage on synthetic data or category coverage can provide evidence.
+
+Neither property subsumes the other. A model that memorises one perfect training image can have high fidelity and almost no diversity. A model that produces random noise can have enormous diversity and terrible fidelity.
+
+This two-axis view explains why GAN mode collapse is serious and why VAE posterior collapse is different. Mode collapse produces too little variety in observed samples. Posterior collapse means a latent variable carries too little input-specific information. Both can reduce useful diversity, but the mechanisms are not the same.
+
+\subsection{Average sample quality versus best-of-\texorpdfstring{K}{K}}
+
+Suppose a conditional generator draws \(K\) samples
+\[
+  \tilde{\vect{y}}^{(1)},\ldots,\tilde{\vect{y}}^{(K)}
+\]
+for one target \(\vect{y}\). The average single-sample error estimates the quality of a typical draw. A best-of-\(K\) metric instead reports
+\begin{equation}
+  \min_{1\le k\le K}
+  d\!\left(\tilde{\vect{y}}^{(k)},\vect{y}\right).
+  \label{eq:week8-bestofk}
+\end{equation}
+This asks whether at least one of the sampled possibilities lands near the realised target.
+
+On a genuinely multimodal problem, best-of-\(K\) can reveal something a point estimate cannot. If the model samples several distinct plausible futures, only one may resemble the particular future that happened to be recorded. Increasing \(K\) gives the model more chances to cover that mode.
+
+But the score is inseparable from \(K\). Best-of-20 is expected to be better than best-of-5 even when the underlying model is identical. Reporting ``best error = 0.12'' without reporting \(K\) is therefore incomplete.
+
+Best-of-\(K\) can also be gamed by excessive or unrealistic sampling. A model that produces thousands of wild guesses may eventually land near many targets. The metric is most meaningful when \(K\) matches a plausible use case and when fidelity/diversity diagnostics show that the extra samples are not merely noise.
+
+\subsection{Use the condition test again}
+
+For conditional generation, evaluation should include an intervention on the condition. If a text prompt is replaced by an unrelated prompt, should the sample distribution change? If four story frames are shuffled across examples, should retrieval of the actual fifth frame become worse?
+
+This is the same empirical discipline developed in Weeks~4, 6 and 7. Architecture names do not prove signal use. A ``conditional VAE'' is conditional by construction, but useful conditional behaviour is demonstrated by what happens when the condition is perturbed.
+
+\subsection{Nearest neighbours and memorisation}
+
+When generated examples look impressive, compare them with nearby training examples. A nearest-neighbour display can reveal whether the generator is reproducing almost exact observations or combining learned structure in new ways.
+
+This diagnostic must also be interpreted carefully. In a dataset with many near-duplicate frames, a close neighbour may be expected. A distant neighbour is not proof of novelty, because the distance metric may ignore important similarities. The goal is not one magical memorisation threshold, but evidence that complements fidelity and diversity measurements.
+
+\begin{checkpointbox}
+Two conditional generators are evaluated on the same task.
+
+Model A has excellent average single-sample fidelity but produces nearly identical samples for each condition. Model B has slightly worse average fidelity, substantial sample diversity, and much better best-of-5 performance. Shuffling the condition badly hurts Model B but barely changes Model A.
+
+Which model provides stronger evidence of learning a useful conditional distribution? What additional failure would you still want to rule out before declaring Model B successful?
+\end{checkpointbox}
+
+\section{Four generative mechanisms, four different contracts}
+
+It is tempting to arrange VAE, GAN and diffusion models on a single ladder from old to new. That obscures the more useful comparison: they define different training and sampling contracts.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.18\textwidth}p{0.23\textwidth}p{0.22\textwidth}p{0.25\textwidth}}
+\toprule
+Mechanism & What training asks for & How sampling begins & Characteristic risk \\
+\midrule
+Deterministic autoencoder & reconstruct each input through a bottleneck & no principled generic rule unless one is added & latent regions used by an arbitrary sampler may be unsupported \\
+VAE & reconstruct while keeping approximate posteriors compatible with a prior & sample a latent from the prior, then decode & prior/posterior mismatch or posterior collapse \\
+GAN & make generated samples indistinguishable from real samples to a learned discriminator & sample noise, then one generator pass & unstable adversarial training or mode collapse \\
+Diffusion & predict/reverse corruption across many noise levels & begin from noise and iteratively denoise & slow sampling and sensitivity to the reverse process/guidance \\
+\bottomrule
+\end{tabular}
+\caption{Generative families differ not only in architecture but in what their objectives ask the model to learn and how randomness is turned into samples.}
+\label{tab:week8-generative-families}
+\end{table}
+
+No row is universally best. A VAE provides an explicit latent inference mechanism that is convenient when a compact stochastic representation is valuable. GANs can produce sharp samples but are notoriously sensitive to adversarial dynamics. Diffusion models trade iterative computation for a stable denoising objective and strong sample quality. A deterministic autoencoder remains useful when the main goal is representation rather than generation.
+
+The right question is therefore not ``which generative model wins?'' but ``which uncertainty, conditioning structure, evaluation criterion and computational budget define this problem?''
+
+\section{What to carry into Week 9}
+
+This week has changed the object we ask a model to learn. A target can be uncertain even when the input is fixed. In that case, a point estimate may be an inadequate description of the problem. A generative model introduces randomness in a structured way and trains that randomness to correspond to variation in the data.
+
+The essential distinctions are:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{point prediction versus distribution modelling}: one answer is not the same object as a probability law over answers;
+  \item \textbf{reconstruction versus generation}: an autoencoder can preserve an input without defining how new latent codes should be sampled;
+  \item \textbf{posterior versus prior}: a VAE learns from target-aware posterior samples but must generate from the prior available at test time;
+  \item \textbf{reconstruction versus KL}: one preserves information about the observation while the other organises latent uncertainty for sampling;
+  \item \textbf{fidelity versus diversity}: realistic individual samples do not guarantee coverage, and variety does not guarantee realism;
+  \item \textbf{conditional connectivity versus conditional behaviour}: a condition must be shown to matter through interventions or matched controls;
+  \item \textbf{one-step versus iterative sampling}: GANs and typical VAEs generate in a small number of passes, whereas diffusion deliberately refines noise across many steps;
+  \item \textbf{generation versus alignment}: CLIP-like models align representations across modalities but do not themselves generate images.
+\end{itemize}
+
+There is one question we have mostly postponed. A condition can be represented by one vector, but what if different parts of a long condition matter for different parts of the output? What if a text token needs one image region, another token needs another region, and a generated sequence should retrieve different memories at different steps?
+
+Week~7 motivated attention as an escape from one recurrent summary. Week~9 will now open that mechanism fully. Queries, keys and values will turn conditioning from ``attach one context vector'' into explicit information routing between positions, memories and modalities.
+
+The generative lesson should remain in view when we do so. Better routing cannot remove genuine uncertainty. Attention can help a model use the evidence that exists; a distribution is still required when the evidence does not determine one unique future.
