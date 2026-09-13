@@ -1,4 +1,4 @@
-# Deep Neural Networks and Learning Systems
+![Module banner](lecture_notes/images/DNNLS_Logo.png)
 
 This repository contains the lecture notes and narrative exercises for the **Deep Neural Networks and Learning Systems (DNNLS)** module.
 
