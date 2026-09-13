@@ -1,108 +1,142 @@
-# Using architecture versions from another repository in Google Colab
+# Using the architecture repository from Google Colab
 
-Yes. A Colab notebook can use Python code directly from a different Git repository. For this assessment, that is usually preferable to copying the important classes and functions into the notebook because it keeps the supplied architecture identifiable and makes comparisons between versions reproducible.
+A Colab notebook can use Python code directly from the separate DNNLS architecture repository. For this assessment, that is normally preferable to copying supplied classes and functions into the notebook.
 
-## Recommended pattern: clone a pinned version
+The architecture repository contains the supplied model versions in separate folders/modules (`v1`, `v2`, and so on). The **repository itself** should be pinned to the assessment release/tag or an exact commit; the chosen version/folder identifies the architecture being investigated inside that release.
+
+For route-specific examples, including when to use a student fork, see [`workflows.md`](workflows.md).
+
+## Recommended pattern: clone a pinned repository release
 
 For a public repository:
 
 ```python
-!git clone --quiet https://github.com/OWNER/ARCHITECTURE_REPO.git
-%cd ARCHITECTURE_REPO
-!git checkout --quiet TAG_OR_COMMIT
-```
-
-Then either import from the cloned repository if it is already a Python package:
-
-```python
-import sys
-sys.path.insert(0, "/content/ARCHITECTURE_REPO")
-
-from package_name.models import ModelName
-```
-
-or, if the repository contains `pyproject.toml` or `setup.py`, install it into the Colab environment:
-
-```python
-!pip install -q -e /content/ARCHITECTURE_REPO
-```
-
-The editable install (`-e`) is useful during an investigation because students can modify a local source file and then reload/restart as appropriate without making a second copy of the architecture.
-
-## Pin the version
-
-The final notebook should record an exact **tag or commit SHA**. Avoid relying on the current `main` branch because `main` can change between the student's investigation and marking.
-
-A robust setup looks like:
-
-```python
 ARCHITECTURE_REPO = "https://github.com/OWNER/ARCHITECTURE_REPO.git"
-ARCHITECTURE_REF = "<tag-or-commit-sha>"
+ARCHITECTURE_REF = "<assessment-release-tag-or-commit>"
 
-!git clone --quiet "$ARCHITECTURE_REPO" architecture_src
+!git clone --quiet "$ARCHITECTURE_REPO" /content/architecture_src
 %cd /content/architecture_src
 !git checkout --quiet "$ARCHITECTURE_REF"
 !pip install -q -e .
 %cd /content
 ```
 
-Students should report the same `ARCHITECTURE_REF` in the **Reference system** section of the assessment notebook.
-
-## Multiple supplied architecture versions
-
-There are two sensible ways to distribute low-to-high-complexity versions.
-
-### Option 1 — tags or commits in one repository
-
-Use tags such as `v1-baseline`, `v2-cnn`, `v3-sequence`, etc. Students check out the version they want to investigate. This is the cleanest option when the versions form a genuine evolution of the same codebase.
-
-### Option 2 — separate modules/configurations in one repository
-
-Expose versions through stable imports or configurations, for example:
+If the repository is not packaged with `pyproject.toml` or `setup.py`, it can instead be added to the Python path:
 
 ```python
-from story_reasoning.versions import BaselineModel, CNNModel, SequenceModel
+import sys
+sys.path.insert(0, "/content/architecture_src")
 ```
 
-or:
+Then import the required version from its module/folder, for example:
 
 ```python
-model = build_model(version="v3")
+from architecture.v1.model import StoryModel
 ```
 
-This is convenient when students need to compare two versions in the same runtime.
+The exact package/import names will depend on the final architecture repository structure.
 
-## Private repositories
+## Pin the repository, then choose the architecture version
 
-Private repositories can also be used, but authentication must be handled carefully. Do **not** place a GitHub personal access token in a submitted notebook, output cell, URL, or transcript.
+The final notebook should record both:
 
-For teaching, the simplest arrangement is usually to make the architecture repository readable to students through an authenticated GitHub/Colab workflow and provide a setup cell that does not expose credentials. If authentication becomes cumbersome, distributing a tagged release/package or including the architecture in the course repository is safer than asking students to paste tokens.
+```text
+Architecture repository: OWNER/ARCHITECTURE_REPO
+Repository tag/commit: assessment-2026
+Architecture version: v1
+```
 
-## When should students copy code instead?
+Do not rely on a moving `main` branch for the submitted result. A later change to the repository should not alter what the student's notebook means.
 
-Copy only the part that is **the student's own changed component**, or when an external repository is not reliably available in the marking environment.
+Keeping `v1`, `v2`, `v3`, etc. together inside the same pinned repository release also makes it possible to compare versions within one Colab runtime without repeatedly checking out different historical commits.
 
-For example, if a student replaces the supplied recurrent decoder with a transformer decoder, it is reasonable for the new decoder to live in the assessment notebook or in a submitted `.py` file. It is usually *not* useful to duplicate the unchanged dataset loader, encoder, training utilities, and reference model around it.
+## Do not copy an entire version just to modify one part
 
-A good principle is:
+If a student wants to change one component of `v1`, they should normally import the unchanged `v1` implementation and define only the changed component in the notebook.
+
+For example:
+
+```python
+from architecture.v1.model import StoryModel
+from architecture.v1.temporal import ReferenceTemporalModel
+
+class MyTemporalModel(ReferenceTemporalModel):
+    ...
+
+reference = StoryModel(...)
+changed = StoryModel(temporal_model=MyTemporalModel(...), ...)
+```
+
+This is preferable to copying the encoder, data loader, training loop, decoder, evaluation code and every other unchanged part of `v1` into the notebook.
+
+A useful design principle for the architecture repository is therefore to make major components injectable or replaceable where practical.
 
 > **Import the reference system; expose the student's intervention.**
 
-This makes the notebook shorter, reduces accidental divergence from the supplied model, and makes the assessed change easier to inspect.
+## When a student fork is appropriate
 
-## Imports are not enough for reproducibility
+A student fork is useful when an intervention requires **coordinated changes across several source files**, changes interfaces throughout a supplied version, or becomes too large to represent clearly as a notebook-local component.
 
-If the architecture also depends on external checkpoints, datasets, generated embeddings, or metadata, record their version/path and ensure markers can access them. Do not make the final result depend on a temporary local file that exists only in the student's Colab runtime.
+In that case the student may:
 
-## Suggested assessment convention
+1. fork the architecture repository;
+2. modify the relevant version/folder;
+3. commit the final implementation;
+4. record the student repository and exact commit SHA; and
+5. clone that pinned commit from the assessment notebook for the experiments.
+
+Example:
+
+```python
+STUDENT_REPO = "https://github.com/STUDENT/ARCHITECTURE_REPO.git"
+STUDENT_COMMIT = "<exact-commit-sha>"
+
+!git clone --quiet "$STUDENT_REPO" /content/student_architecture
+%cd /content/student_architecture
+!git checkout --quiet "$STUDENT_COMMIT"
+!pip install -q -e .
+%cd /content
+```
+
+A pull request is **optional**. The commit history or Git diff can make substantial changes easier to inspect, but creating a PR is not itself an assessment requirement.
+
+## What stays in the Colab notebook?
+
+Even when implementation code lives in a student fork, the assessment notebook remains the main investigation artifact. It should contain the question, prediction, setup, experimental comparison, controls, results, figures, interpretation, limitations and AI interaction record.
+
+A useful separation is:
+
+```text
+supplied architecture repo  -> reference implementation
+student fork (if needed)    -> substantial implementation change
+assessment Colab            -> experiment, evidence and reasoning
+```
+
+For small changes, the middle layer disappears: the changed component can live directly in the notebook.
+
+## Private repositories
+
+Private repositories can also be used, but authentication must be handled carefully. Do **not** place a GitHub personal access token in a submitted notebook, output cell, URL, or Gemini transcript.
+
+For teaching, the simplest arrangement is usually to make the architecture repository readable to students through an authenticated GitHub/Colab workflow and provide a setup cell that does not expose credentials. If authentication becomes cumbersome, distributing a tagged release/package is safer than asking students to paste tokens.
+
+## Checkpoints, datasets and generated artifacts
+
+Imports alone do not guarantee reproducibility. If the architecture depends on supplied checkpoints, dataset versions, cached embeddings, metadata, or other generated artifacts, identify them in the notebook and ensure the marker can access them.
+
+Do not make the final result depend on a temporary file that exists only in one Colab session.
+
+## What to record
 
 Students should record:
 
-- architecture repository;
-- exact tag/commit;
-- architecture/version name;
-- any supplied checkpoint identifier;
+- supplied architecture repository;
+- supplied repository tag/commit;
+- architecture version/folder (`v1`, `v2`, etc.);
+- supplied checkpoint identifier where relevant;
 - dataset/version;
-- their own changed files or modules.
+- whether their intervention is notebook-local or repository-based;
+- student repository and exact commit if a fork/repository is used;
+- the specific component or files changed.
 
-This allows the architecture repository to remain the canonical source while the assessment submission contains only the evidence and the student's intervention.
+See [`workflows.md`](workflows.md) for complete examples for Routes A, B, C and D.
