@@ -1,2 +1,505 @@
-\chapter{Visual Encoders}
+\chapter{Convolution and inductive bias}
 \label{chap:week05}
+
+In the previous chapters, we gave the learner increasingly powerful tools. A multilayer network can represent nonlinear rules; backpropagation can train many parameters; modern optimisation and regularisation can make that training practical. Yet one question has so far been left deliberately unresolved: \emph{which computations should the architecture make easy?}
+
+An image is not an arbitrary list of numbers. Nearby pixels are often related. An edge can appear near the top of an image or near the bottom and still be the same kind of edge. Small visual structures combine into larger ones. If a model must discover all of these facts from scratch, then much of its data and parameter budget is spent relearning regularities that we already know are common in images.
+
+A convolutional neural network builds some of those assumptions into the computation. It does not guarantee that the assumptions are correct, and it does not make a model immune to bad data or bad objectives. It changes which solutions are easy to represent and easy to learn.
+
+This is an example of an \emph{inductive bias}: a preference built into the learner before it sees the particular training set.
+
+\begin{keyidea}
+An architecture is not a neutral container for parameters. It expresses assumptions about the structure of the problem. Convolution says, roughly, that useful local patterns may recur at different spatial locations and should be processed by the same detector.
+\end{keyidea}
+
+That statement is more important than the convolution formula itself. The purpose of this chapter is to unpack what it means, where it helps, what information it discards, and how it leads naturally to visual encoders that can be reused by later systems.
+
+\section{From prediction to representation}
+
+Until now, many of our examples could be drawn as
+\[
+  \text{input} \longrightarrow \text{network} \longrightarrow \text{prediction}.
+\]
+For modern visual systems, it is often more useful to split the network conceptually into two parts:
+\[
+  \text{image} \longrightarrow \underbrace{\text{feature extractor / encoder}}_{\text{shared representation}}
+  \longrightarrow \underbrace{\text{task head}}_{\text{specific output}}.
+\]
+The encoder turns a raw image into a representation. The head interprets that representation for a particular task.
+
+A classifier head might produce class logits. A detector head might produce bounding boxes and object scores. A segmentation head might produce one class distribution per pixel. A retrieval system might compare the representation with vectors from other images. A decoder might attempt to reconstruct an image from the representation.
+
+This separation matters because the representation can be useful beyond the task that originally created it. If an encoder has already learned edges, textures, shapes and higher-level visual structure, a later task need not begin again from individual pixels. This is the basic logic behind \emph{pretraining} and \emph{transfer learning}.
+
+The split is conceptual rather than absolute. The head can influence the features during end-to-end training, and different tasks favour different representations. But it gives us a useful question to ask of every visual model:
+
+\begin{center}
+\emph{What information has the encoder made easy for the head to use?}
+\end{center}
+
+Week~4 taught us not to infer this from accuracy alone. In this chapter we begin by asking what architecture makes likely even before training has produced a particular representation.
+
+\section{Why not flatten the image?}
+
+Suppose an RGB image has height \(H\), width \(W\), and three colour channels. Flattening it produces a vector in
+\[
+  \R^{3HW}.
+\]
+A fully connected layer from this vector to \(m\) hidden units contains approximately
+\[
+  3HWm
+\]
+weights.
+
+For a \(224\times224\) RGB image and only \(m=1000\) hidden units, this is already about
+\[
+  224\times224\times3\times1000 \approx 150\text{ million}
+\]
+weights before the model has computed a second layer.
+
+The number is not the deepest problem. A more important issue is what those weights \emph{mean}. In a flattened network, the weight connecting the pixel at location \((10,10)\) to one hidden unit is independent of the weight connecting an otherwise identical local pattern at \((100,100)\). Nothing in the architecture says that the same visual structure should be treated similarly after it moves.
+
+This creates two related difficulties.
+
+First, the model must learn local structure from a representation in which every location is initially unrelated to every other location. An edge detector learned in one corner does not automatically become an edge detector elsewhere.
+
+Second, the model spends separate parameters on rules that could reasonably be shared. More parameters are not always harmful, but unnecessary freedom means that more examples may be required to discover the intended regularity.
+
+A fully connected network can, in principle, learn many image tasks. The point is not impossibility. The point is that its default assumptions do not match the spatial structure we usually expect in images.
+
+\begin{checkpointbox}
+Imagine a dataset in which a small symbol determines the class, but during training the symbol appears only on the left side of the image. Which architecture would require explicit evidence that the same symbol on the right should mean the same thing: a flattened MLP or a convolutional network? Why?
+\end{checkpointbox}
+
+This is the distinction explored experimentally in the Week~5 practical: both models can fit the observed training positions, but the architectures differ in how naturally the rule transfers to held-out positions. The useful conclusion is not ``CNNs are always better.'' It is that architecture changes which generalisations are cheap to learn.
+
+\section{The convolutional idea: one local detector, reused}
+
+Consider a single-channel image \(X\) and a small \(k\times k\) matrix of weights \(K\), which we shall call a \emph{kernel} or \emph{filter}. At one spatial location, the kernel looks only at a local image patch. It multiplies corresponding values and adds them:
+\begin{equation}
+  Z_{i,j}
+  = b + \sum_{u=0}^{k-1}\sum_{v=0}^{k-1}
+  K_{u,v} X_{i+u,j+v}.
+  \label{eq:week5-conv2d}
+\end{equation}
+The important step is then to move the same kernel across the image and repeat the calculation.
+
+The output \(Z\) is a \emph{feature map}. One output number says how strongly this learned local pattern responds at one location. The next output number applies the same learned detector to a neighbouring patch.
+
+\begin{figure}[ht]
+  \figureaction{Draw a small grayscale image with a bright L-shaped motif. Overlay a 3x3 receptive-field window and show one kernel-dot-patch calculation producing one cell of a feature map. Then show the same kernel sliding to several positions. Emphasise that the nine kernel weights are reused, not copied as independently learned weights.}
+  \caption{Convolution applies one local detector repeatedly across space. Each output value is computed from a local receptive field, but the kernel parameters are shared across all spatial positions.}
+  \label{fig:week5-convolution}
+\end{figure}
+
+Two assumptions have appeared at once.
+
+\subsection{Locality}
+
+The unit at \((i,j)\) does not initially inspect the entire image. It sees a local \emph{receptive field}. This says that nearby pixels are likely to contain useful jointly interpretable structure.
+
+For many visual patterns this is sensible. Edges, corners, texture fragments and small parts are local phenomena. A model need not compare every pixel directly with every other pixel in its first operation.
+
+Locality is still an assumption. If a task depends immediately on an arbitrary long-range relationship between distant pixels, a very local architecture may require depth before the relevant information can interact.
+
+\subsection{Weight sharing}
+
+The same kernel is used at every spatial position. The model therefore does not learn one edge detector for the upper-left corner and another unrelated detector for the lower-right corner. It learns a detector and asks where that detector responds.
+
+If a kernel has size \(3\times3\), one input channel and one output channel, it needs only nine weights plus a bias, regardless of whether the input image is \(20\times20\) or \(2000\times2000\). The number of \emph{applications} grows with image size, but the number of learned detector parameters does not.
+
+This is parameter efficiency, but the stronger consequence is statistical. Evidence for the detector at one location updates the same parameters that will be used at other locations. The learner can therefore pool evidence across positions.
+
+\begin{keyidea}
+Weight sharing is a statement about what should count as the same feature. It says that a local pattern detected here and the same local pattern detected there should use the same learned rule.
+\end{keyidea}
+
+\section{Translation equivariance is not invariance}
+
+Suppose an object moves five pixels to the right. What should happen inside the network?
+
+For an ordinary convolution, the corresponding activation pattern also moves approximately five pixels to the right. The output changes, but it changes in a predictable way with the input. This property is called \emph{translation equivariance}.
+
+Writing a translation operation as \(T_\Delta\), ideal equivariance has the form
+\[
+  f(T_\Delta X) = T_\Delta f(X).
+\]
+Translate the input, and the representation translates with it.
+
+This is different from \emph{translation invariance}, for which
+\[
+  f(T_\Delta X) = f(X).
+\]
+An invariant representation ignores the transformation entirely.
+
+The distinction is essential. A feature map should often preserve \emph{where} a feature occurred. If an edge moves, it is useful for the edge response to move. A final image classifier, by contrast, may care that a dog is present while caring less about whether the dog is 20 pixels left or right of centre.
+
+\begin{figure}[ht]
+  \figureaction{Create three small diagrams. First row: an input motif moves right and its convolutional feature-map peak moves right: label this equivariance. Second row: after global pooling, both moved inputs produce the same one-number summary: label this invariance. Third row: show a localisation task where preserving the moved position is necessary.}
+  \caption{Equivariance preserves the structure of a transformation in the representation; invariance deliberately removes sensitivity to that transformation. Which is desirable depends on the task.}
+  \label{fig:week5-equivariance}
+\end{figure}
+
+Real CNNs are not perfectly translation equivariant in every circumstance. Stride, padding, boundaries, pooling and finite sampling can disturb the ideal relationship. It is therefore safer to treat convolution as a strong architectural tendency toward translation-consistent feature extraction rather than as a magical guarantee of complete shift robustness.
+
+\section{Images have channels; convolutions create channels}
+
+An RGB image is already a stack of three two-dimensional arrays. Convolution generalises naturally to this case.
+
+Let the input have \(C_{\mathrm{in}}\) channels. One output kernel must have one slice for each input channel, so its shape is
+\[
+  C_{\mathrm{in}}\times k_h\times k_w.
+\]
+At each spatial location, the kernel combines values across both space and input channels to produce one output number.
+
+To produce \(C_{\mathrm{out}}\) output feature maps, we learn \(C_{\mathrm{out}}\) such kernels. The full weight tensor therefore has shape
+\[
+  C_{\mathrm{out}}\times C_{\mathrm{in}}\times k_h\times k_w.
+\]
+The parameter count, including one bias per output channel, is
+\begin{equation}
+  C_{\mathrm{out}}
+  \left(C_{\mathrm{in}}k_hk_w + 1\right).
+  \label{eq:week5-conv-params}
+\end{equation}
+Notice what is absent from this expression: image height and image width.
+
+An output channel can be thought of as a learned kind of detector. The first layer might learn several oriented edges or colour contrasts. Later layers do not operate directly on RGB pixels; they operate on feature maps produced by earlier layers, so their kernels combine already learned visual features.
+
+This creates a hierarchy. A later unit can respond to a configuration of earlier features, and a still later unit can respond to larger configurations. The hierarchy is not guaranteed to correspond neatly to human concepts, but the computational structure makes compositional feature building possible.
+
+\begin{pytorchbox}{one convolutional layer}
+conv = nn.Conv2d(
+    in_channels=3,
+    out_channels=32,
+    kernel_size=3,
+    stride=1,
+    padding=1,
+)
+
+x = torch.randn(16, 3, 60, 125)  # batch, channels, height, width
+h = torch.relu(conv(x))
+print(h.shape)                    # (16, 32, 60, 125)
+\end{pytorchbox}
+
+In this example, padding preserves the spatial height and width while changing the channel dimension from three raw colour channels to 32 learned feature channels.
+
+\section{Stride, padding and output size}
+
+A convolutional layer makes several design decisions beyond the kernel values.
+
+\subsection{Padding}
+
+Without padding, a kernel cannot be centred near the image boundary without extending beyond the available pixels. A \(3\times3\) valid convolution therefore shrinks the output.
+
+Padding adds values around the boundary, commonly zeros. With a \(3\times3\) kernel, stride one and one pixel of padding on each side, the output can preserve the original spatial size.
+
+Padding is not merely formatting. Boundary values have less real visual context than interior values, and the chosen padding rule affects what the model sees near edges.
+
+\subsection{Stride}
+
+A stride of one evaluates neighbouring receptive fields one pixel apart. A stride of two skips alternate positions, reducing spatial resolution. Strided convolution therefore performs feature extraction and downsampling in one learned operation.
+
+For one spatial dimension with input size \(n\), kernel size \(k\), padding \(p\) and stride \(s\), the output size is
+\begin{equation}
+  n_{\mathrm{out}}
+  = \left\lfloor \frac{n+2p-k}{s} \right\rfloor + 1.
+  \label{eq:week5-output-size}
+\end{equation}
+The same formula is applied independently to height and width.
+
+\begin{optionalexercise}[title={Optional mathematics --- shapes and parameter counts}]
+An input batch has shape \(32\times3\times64\times64\). A convolution uses 48 output channels, a \(5\times5\) kernel, padding 2 and stride 2.
+
+\begin{enumerate}[leftmargin=*]
+  \item Compute the output height and width.
+  \item Compute the shape of the output tensor.
+  \item Compute the number of learned weights and biases.
+  \item Explain why doubling the image width would change the number of convolution operations but not the number of learned parameters.
+\end{enumerate}
+\end{optionalexercise}
+
+\section{Receptive fields grow through depth}
+
+A first-layer \(3\times3\) convolution sees only \(3\times3\) pixels. Does that mean a CNN can never use distant information? No. Receptive fields compose.
+
+Suppose a second \(3\times3\) convolution reads the first feature map. One second-layer unit depends on a \(3\times3\) region of first-layer units, and each of those units already depends on a \(3\times3\) region of the original image. With stride one, the second-layer unit has an effective receptive field of \(5\times5\) pixels. A third such layer reaches \(7\times7\), and so on.
+
+Stride and pooling make receptive fields grow faster because one step in a later feature map corresponds to several pixels in the original image.
+
+This gives depth a second meaning beyond Week~3's nonlinear representational power. In a CNN, depth also controls the spatial scale at which information can interact.
+
+Early layers can respond to local detail. Deeper layers can combine information over larger portions of the image. Eventually a representation can summarise the entire image while having been built through repeated local operations.
+
+\begin{figure}[ht]
+  \figureaction{Draw three stacked convolutional layers with 3x3 kernels. Highlight one unit in layer 1 and its 3x3 input receptive field, one unit in layer 2 and its 5x5 effective receptive field, and one unit in layer 3 and its 7x7 effective receptive field. Add a second mini-example showing how stride-2 downsampling makes the effective receptive field grow faster.}
+  \caption{Local computation does not imply globally local information. Receptive fields expand as convolutional layers are composed, allowing deeper features to integrate evidence over progressively larger spatial regions.}
+  \label{fig:week5-receptive-field}
+\end{figure}
+
+\section{Pooling: useful forgetting}
+
+CNNs often reduce spatial resolution as features become more abstract. Historically, a common mechanism is \emph{pooling}.
+
+Max pooling replaces a local region by its largest activation. Average pooling replaces it by the mean. Both operations summarise several nearby positions with fewer numbers.
+
+This can be useful. If a feature means ``a vertical edge is present somewhere in this small region,'' then retaining the exact pixel at which the strongest response occurred may be unnecessary. Pooling reduces computation, increases the effective receptive field of later units, and makes the representation less sensitive to small translations.
+
+But compression is information loss.
+
+Imagine two feature maps. Each contains one strong activation of value 10, but one is on the left and the other is on the right. Global max pooling maps both feature maps to the scalar 10. A later classifier cannot infer which side contained the activation because that distinction no longer exists in its input.
+
+No optimiser can recover information that the representation has made identical.
+
+This is the same representational logic we encountered in Week~3 and Week~4. If two inputs become the same hidden representation but require different outputs, a downstream head cannot separate them. The failure is upstream of the head.
+
+\begin{keyidea}
+Invariance is obtained by discarding distinctions. That is beneficial only when the discarded distinctions are irrelevant to the task.
+\end{keyidea}
+
+Global pooling is therefore natural for some classification tasks and disastrous for tasks requiring precise localisation. Detection, segmentation and image reconstruction need more spatial information than a single whole-image vector can provide at every stage.
+
+Modern CNNs often use strided convolutions as an alternative or complement to explicit pooling. The trade-off remains the same: spatial compression makes representation cheaper and often more robust, but each reduction asks what detail can safely be forgotten.
+
+\section{The architecture chooses what must be relearned}
+
+We can now state the inductive bias more precisely.
+
+A flattened MLP gives each input location its own set of weights. If a motif appears only on the left during training, the weights connected to right-side pixels may receive no evidence about that motif. Generalisation to the right must be inferred indirectly or learned from additional examples.
+
+A CNN ties those positions together through shared kernels. Learning the motif on the left immediately changes the detector used on the right. The architecture has converted a generalisation question into a parameter-sharing rule.
+
+This is powerful when the assumption is appropriate. It can also be wrong.
+
+Absolute position sometimes matters. In radiology, anatomy has a meaningful spatial arrangement. In documents, something printed near the top may play a different role from the same pattern near the bottom. In traffic scenes, sky-like texture at the bottom of an image may signal something unusual. Convolution does not erase position automatically, especially after padding and later layers, but pure location independence is not universally desirable.
+
+This is why the correct lesson is not ``encode as much invariance as possible.'' It is ``encode biases that reflect useful regularities while preserving distinctions the task may need.''
+
+Data and inductive bias can also compensate for one another. If a weakly biased model sees the motif at every possible location, it can learn location-robust behaviour explicitly. If data are scarce or unevenly distributed, a well-matched architectural prior becomes more valuable.
+
+\section{A short history of convolutional architecture ideas}
+
+CNN history is useful when it is read as a sequence of design problems rather than a list of blueprints.
+
+\subsection{LeNet: local features and shared weights}
+
+Early convolutional systems for handwritten character recognition already contained the pattern that still matters today: convolutional feature extraction, spatial reduction and a final classifier. LeNet-5 demonstrated that learned local filters and shared weights could be trained end to end for document recognition \parencite{lecun1998}.
+
+The important lesson is not the exact number of layers. It is the separation between spatial feature extraction and final prediction.
+
+\subsection{AlexNet: scale, compute and deep visual learning}
+
+AlexNet's ImageNet result made large convolutional networks central to modern computer vision \parencite{krizhevsky2012}. The change was not one isolated theoretical invention. Larger labelled datasets, GPUs, ReLU activations, data augmentation and dropout made deeper convolutional training effective at a scale that transformed the field.
+
+The lesson for this module is that architecture, optimisation, regularisation, data and hardware interact. A good inductive bias does not remove the need for engineering.
+
+\subsection{VGG: repeated small convolutions}
+
+VGG explored the idea that depth could be built from a very regular recipe of small convolutions \parencite{simonyan2015}. Repeated \(3\times3\) layers build larger effective receptive fields while inserting nonlinearities between stages.
+
+This reinforces a theme from Week~3: composing simple transformations can be more expressive than replacing them with one large operation, especially when nonlinearities intervene.
+
+\subsection{ResNet: make depth easier to optimise}
+
+As networks became deeper, adding layers did not automatically improve trainable models. Residual networks introduced skip connections of the form
+\begin{equation}
+  \vect{h}_{\ell+1} = \vect{h}_{\ell} + F(\vect{h}_{\ell}),
+  \label{eq:week5-residual}
+\end{equation}
+so a block learns a change to its input rather than an entirely new representation from scratch \parencite{he2016}.
+
+The identity path gives information and gradients a direct route through the block. This connects directly to Week~4: architecture can influence optimisation by changing how easily signals propagate, not only by changing what functions are representable.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{0.16\textwidth}p{0.27\textwidth}p{0.43\textwidth}}
+\toprule
+Architecture & Design idea & What to remember \\
+\midrule
+LeNet & convolution + subsampling + head & local learned features and shared spatial weights \\
+AlexNet & deeper CNN at ImageNet scale & architecture succeeds together with data, compute and training engineering \\
+VGG & repeated small convolutions & simple local operations compose into larger receptive fields \\
+ResNet & residual/skip connections & deeper computation is easier when information and gradients have short paths \\
+\bottomrule
+\end{tabular}
+\caption{Canonical CNNs are most useful as examples of architectural ideas, not as layer configurations to memorise.}
+\label{tab:week5-cnn-history}
+\end{table}
+
+Modern visual systems include residual CNNs, vision transformers and many hybrids. The enduring question is not whether a model is called a CNN. It is which symmetries, spatial interactions and parameter-sharing patterns its architecture assumes.
+
+\section{Pretraining and transfer: reusing the encoder}
+
+Suppose we have only a few thousand labelled examples for a new visual task. Training a large encoder from random initialisation may be wasteful. A common alternative is to start from an encoder trained on a larger source task.
+
+There are two basic strategies.
+
+In \emph{feature extraction}, the pretrained encoder is frozen. We compute representations and train only a new head. This is cheap and protects the source representation from drifting.
+
+In \emph{fine-tuning}, some or all encoder parameters are updated on the new task. This can adapt the representation to the target domain, but Week~4's lesson applies immediately: a useful pretrained component can be damaged if the new objective or learning dynamics pull it away from the behaviour that made it useful.
+
+Transfer learning works when the source representation contains regularities that the target task can reuse. Early visual filters are often broadly useful because edges and textures recur across many image domains, while later features can be more task-specific.
+
+The practical question is therefore not simply ``pretrained or not?'' It is:
+\begin{center}
+\emph{Which representation should be inherited, which layers should adapt, and what diagnostic tells us whether useful information has been preserved?}
+\end{center}
+
+This question will recur in later weeks when pretrained language and image components become part of a larger system.
+
+\section{Autoencoders: learning a visual bottleneck without labels}
+
+So far, our encoder has usually been trained because a supervised task required a prediction. There is another route: train the representation by asking it to preserve enough information to reconstruct its own input.
+
+An \emph{autoencoder} contains an encoder \(E_\theta\) and decoder \(D_\phi\):
+\begin{align}
+  \vect{z} &= E_\theta(X),\\
+  \hat X &= D_\phi(\vect{z}).
+\end{align}
+The latent vector \(\vect{z}\) is a bottleneck between the input and reconstruction.
+
+The training objective might be
+\begin{equation}
+  \loss_{\mathrm{recon}}
+  = \frac{1}{N}\sum_{i=1}^{N}
+  \lVert D_\phi(E_\theta(X_i))-X_i\rVert_1.
+  \label{eq:week5-autoencoder-loss}
+\end{equation}
+The model receives no class label. The input itself supplies the target.
+
+If the bottleneck is genuinely restrictive, the encoder cannot merely copy every pixel independently. It must construct a compact code from which the decoder can recover important visual detail.
+
+This does not mean that every latent dimension becomes a human-interpretable concept. Nor does low reconstruction error guarantee that distances in latent space are semantically meaningful. Reconstruction rewards information useful for reconstructing pixels, which may include colour, background and low-level texture that a later semantic task considers irrelevant.
+
+The value of reconstruction is more modest and very concrete: it tests whether the latent remains input-dependent and contains enough information for the decoder to recover the frame.
+
+\begin{pytorchbox}{a small convolutional encoder}
+class Encoder(nn.Module):
+    def __init__(self, latent_dim=128):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, 3, stride=2, padding=1), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.ReLU(),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1), nn.ReLU(),
+        )
+        self.to_latent = nn.Linear(flat_dim, latent_dim)
+        self.norm = nn.LayerNorm(latent_dim)
+
+    def forward(self, x):
+        h = self.features(x)
+        z = self.to_latent(h.flatten(1))
+        return self.norm(z)
+\end{pytorchbox}
+
+The decoder is essential during autoencoder training because it turns ``does the latent preserve the image?'' into a measurable reconstruction problem. Once a useful encoder has been learned, later systems may discard the decoder and operate directly on \(\vect{z}\).
+
+\subsection{The bottleneck is a design decision}
+
+A bottleneck can be too small. If the latent cannot preserve sufficient information, reconstruction will remain poor no matter how long the optimiser runs.
+
+It can also fail dynamically. Week~4 showed how inactive ReLUs can collapse variation. A nominally 256-dimensional vector is not useful if most dimensions are constant across all images.
+
+Useful diagnostics therefore include both the reconstruction error and the variation of latent coordinates across examples. If
+\[
+  \operatorname{std}(z_j) \approx 0
+\]
+for many coordinates \(j\), the effective representation may be much smaller than its declared dimensionality.
+
+Latent interpolation provides a different kind of probe. Given two encoded images \(\vect{z}_a\) and \(\vect{z}_b\), consider
+\[
+  \vect{z}(\alpha) = (1-\alpha)\vect{z}_a + \alpha\vect{z}_b,
+  \qquad 0\le\alpha\le1.
+\]
+Decoding intermediate points can reveal whether nearby latent positions produce gradual or abrupt visual changes. This is descriptive evidence about the representation's geometry, not proof that Euclidean distance corresponds to semantic similarity.
+
+\begin{optionalexercise}[title={Optional coding --- what survives the bottleneck?}]
+Train a small convolutional autoencoder on a simple image dataset. After training, choose several held-out images and zero 10\%, 25\% and 50\% of latent coordinates before decoding.
+
+Compare reconstruction error and visible changes. Repeat with different randomly selected coordinate subsets. Does damage increase smoothly? Do some subsets matter more than others? What evidence would support the claim that information is distributed rather than stored in one dedicated unit?
+\end{optionalexercise}
+
+\section{Application to the architecture: a visual currency for StoryReasoning}
+
+\begin{architecturebox}
+The StoryReasoning system cannot conveniently reason over all \(60\times125\times3\) pixel values of every frame at every later stage. Its first learned visual component is therefore a convolutional autoencoder.
+
+The architecture narrative uses a four-block strided CNN encoder. A \(60\times125\) frame is progressively compressed to a spatial tensor of roughly \(4\times8\times256\), projected to a 256-dimensional latent vector, and normalised with LayerNorm. A mirrored decoder maps the latent back to pixels.
+
+This component is pretrained using frame reconstruction alone. Its validation L1 reaches about \(0.040\), compared with roughly \(0.152\) for the constant median-image reconstruction floor. That difference establishes something important before any sequence model exists: the encoder's latent contains enough input-specific information for the decoder to recover the frame far better than a generic image.
+
+The earlier 16-dimensional ReLU bottleneck is an equally important result. Many units became inactive and the representation nearly died. Increasing the latent width to 256 and using LayerNorm produced stable latent spread instead. This is a concrete meeting point between Week~4 and Week~5: an architectural bottleneck is useful only if training preserves variation through it.
+
+The autoencoder does \emph{not} solve next-frame prediction. It solves a representation problem. Once frames have become vectors, the system can compare them, retrieve visually similar frames and later pass sequences of latents to temporal models. The practical Week~5 retrieval experiment deliberately freezes the encoder and shows the limit clearly: visual similarity works well for near-copy continuations but cannot reason through a camera cut merely because the representation reconstructs well.
+
+The number \(0.040\) is also a useful ceiling for later decoder-based image prediction. Even if a future model predicted the exact target latent, the pretrained decoder would still reconstruct the target with about this error. Prediction error and reconstruction error are therefore different sources of imperfection and should be measured separately.
+\end{architecturebox}
+
+This is a recurring engineering pattern: separate a difficult system into measurable components. Before asking whether temporal reasoning predicts the future correctly, establish whether the visual encoder can represent the present correctly.
+
+\section{Representation is not reasoning}
+
+Once an image is represented by a vector, many operations become easy. We can compute distances, nearest neighbours, clusters or linear probes. A retrieval system can rank candidate images by latent similarity.
+
+But a good representation does not automatically contain the computation required by a new task.
+
+Imagine four movie frames followed by a shot cut. A latent encoder may represent each frame faithfully. The true fifth frame may nevertheless be visually distant from every context frame. Choosing the nearest latent then fails for a principled reason: the rule uses visual similarity when the problem requires temporal or narrative information.
+
+This distinction protects us from a common diagnostic mistake. If latent retrieval performs poorly, we should not immediately conclude that the encoder is poor. We should first ask whether the retrieval rule asks the representation to solve something it was never trained or structured to infer.
+
+Conversely, excellent reconstruction does not prove semantic usefulness. An autoencoder can preserve low-level detail while organising latent space in a way that is awkward for classification or retrieval. The representation must always be judged against the downstream question.
+
+The Week~5 practical therefore ends at a deliberate boundary. Students now possess a visual currency: frame \(\rightarrow\) latent vector. They do not yet possess a mechanism that combines four such vectors over time. That missing operation belongs to later sequence-model chapters.
+
+\section{What architecture has bought us}
+
+Convolution has changed the learning problem in several ways at once.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Locality} restricts early computation to nearby values, matching common image structure.
+  \item \textbf{Weight sharing} lets evidence for one detector accumulate across spatial positions.
+  \item \textbf{Equivariance} makes translated patterns produce correspondingly translated feature responses.
+  \item \textbf{Downsampling} trades spatial precision for cheaper, broader representations.
+  \item \textbf{Depth} combines local features across progressively larger receptive fields.
+  \item \textbf{Encoder/head separation} makes representations reusable across tasks.
+  \item \textbf{Reconstruction pretraining} provides a target even when task labels are absent and gives a direct diagnostic of information preservation.
+\end{itemize}
+
+None of these is automatically good. Locality can delay long-range interactions. Weight sharing can be inappropriate when absolute position is essential. Pooling can destroy localisation. Reconstruction can preserve the wrong details for a semantic task. A pretrained encoder can drift during fine-tuning.
+
+The common theme is that every design choice changes which distinctions survive and which solutions are easy to discover.
+
+\begin{checkpointbox}
+For each of the following tasks, decide whether strong translation invariance is desirable, undesirable, or somewhere in between: image-level species classification; locating a tumour in a scan; recognising a traffic sign; predicting the pixel coordinates of a face; retrieving visually similar movie frames. Justify the answer in terms of information the representation must preserve.
+\end{checkpointbox}
+
+\section{A practical reading of a CNN}
+
+When you encounter a convolutional architecture, resist the temptation to read it as a sequence of API calls. Ask the same mechanistic questions we have used throughout the module.
+
+What is the receptive field at each stage? Where is spatial resolution reduced? How many feature channels are created? Which weights are shared? At what point is position information discarded? What representation reaches the head? What loss shapes that representation? Which baseline tells us whether the learned features are useful? If the encoder was pretrained, what measurement tells us that fine-tuning has not destroyed it?
+
+A diagram of boxes is not yet an explanation. The architecture becomes meaningful when each operation can be related to an assumption about information.
+
+\begin{optionalexercise}[title={Optional design exercise --- choose the bias before the model}]
+You have three datasets:
+\begin{enumerate}[leftmargin=*]
+  \item microscopic texture crops where class depends on a repeated local pattern;
+  \item chessboard images where the task is to identify the exact square containing a piece;
+  \item satellite images where a long river may span most of the frame.
+\end{enumerate}
+For each dataset, propose an encoder design at the level of locality, downsampling and spatial aggregation. Which assumptions of a standard image-classification CNN are helpful? Which could destroy information needed by the task? Do not specify a large named architecture; justify the inductive biases.
+\end{optionalexercise}
+
+\section{Summary}
+
+Week~4 taught us that successful optimisation is not the same as successful learning. Week~5 adds another layer: even before optimisation begins, the architecture determines which regularities are easy to learn.
+
+A convolutional layer uses local receptive fields and shared weights. This makes recurring spatial patterns economical to represent and naturally produces translation-equivariant feature maps. Multiple channels learn multiple kinds of local features; depth grows the effective receptive field and composes those features into larger structures. Stride and pooling compress space, often increasing robustness while deliberately discarding localisation information.
+
+These choices are examples of inductive bias. They can improve generalisation when they match the data and hurt when they remove distinctions the task requires.
+
+The encoder/head view then lets us separate visual representation from downstream prediction. A convolutional autoencoder can learn a compact latent through reconstruction, and reconstruction error plus latent spread provides direct evidence that information survived the bottleneck. In StoryReasoning, this creates the first reusable learned representation of a movie frame.
+
+The next question is no longer merely whether the representation contains information. It is how we obtain evidence about \emph{which} information a model uses and whether our explanation of that use is faithful.
