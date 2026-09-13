@@ -80,6 +80,21 @@ Copy this into Gemini:
 
 ---
 
+## Try it yourself manually
+
+Without asking Gemini to modify the code, go back to the cell that defines the update size in **INVESTIGATION 2** and change it to a noticeably smaller value, for example from `1.0` to `0.1` if that is how the cell was written.
+
+Rerun the learning cell.
+
+- Does the learner still reach a separating boundary?
+- Does it take more or fewer updates?
+- Does the final boundary look exactly the same?
+- Now try a larger update size. What changes, and what stays the same?
+
+Do not worry yet about finding a "best" value. The point is to see which parts of the behaviour are controlled by this number.
+
+---
+
 ## Reveal: what was this investigation really about?
 
 The objective was to encounter an **early learning algorithm: the perceptron**, and to build intuition for **iterative learning, linear separability, and learning from an error signal**.
