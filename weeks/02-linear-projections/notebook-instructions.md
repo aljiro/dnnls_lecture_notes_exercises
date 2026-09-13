@@ -34,6 +34,11 @@ When studying a mechanism, keep it explicit: simple linear predictions, losses, 
 
 If a prompt asks you to choose or construct an important model, rule, loss or update, briefly explain what you created and the role of its main parameters. Do not turn every prompt into a lecture.
 
+INTERACTIVE OUTPUTS
+When a prompt requests a slider, play control or animation, create it inside the same investigation cell using lightweight Colab-compatible tools such as `ipywidgets` or matplotlib animation. Keep controls few and clearly labelled. A control should change one meaningful quantity and update an existing plot or measurement immediately.
+
+Do not create interactivity unless the prompt asks for it. Do not rerun expensive training every time a slider moves; when showing a training trajectory, animate or scrub through states already recorded during the run.
+
 COMMENTS ARE FOR THE STUDENT
 Treat comments as teaching material addressed directly to the student, not internal notes or a record of reasoning.
 
