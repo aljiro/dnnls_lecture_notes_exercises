@@ -83,6 +83,20 @@ Then copy:
 
 ---
 
+## Try it yourself manually
+
+Without asking Gemini to change the code, go back to **INVESTIGATION 1** and change the transformation matrix from `[[2, 0], [0, 1]]` to `[[1, 0], [0, -1]]`.
+
+Before running it, sketch or describe what you think will happen to the arrow.
+
+Then run the cell.
+
+- Was your prediction correct?
+- Which coordinate changed sign?
+- Try changing only one other matrix entry. Can you make the shape shear, shrink, or flip in a different way?
+
+---
+
 ## Reveal: what was this investigation really about?
 
 The objective was to build an intuition for **matrix multiplication as a transformation of representations**.
