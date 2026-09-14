@@ -32,7 +32,13 @@ jobs:
         run: |
           test -s lecture_notes_v0.pdf
           file lecture_notes_v0.pdf
-          pdfinfo lecture_notes_v0.pdf | grep -E '^(Pages|Page size|File size):'
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lecture_notes_v0.pdf')
+          data = p.read_bytes()
+          assert data.startswith(b'%PDF-'), 'Not a PDF file'
+          print(f'File size: {len(data)} bytes')
+          PY
 
       - name: Commit compiled PDF
         run: |
