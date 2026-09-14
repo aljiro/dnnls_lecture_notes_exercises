@@ -60,7 +60,7 @@ features = model.encoder(images)
 
 - **Architecture repository:** unchanged reference architecture.
 - **Notebook:** hypothesis, experimental controls, probes, ablations, measurements, figures and interpretation.
-- **Student fork:** normally unnecessary.
+- **Student fork:** unnecessary.
 
 Example question: *Does v3 actually use temporal order, or can it perform similarly from an unordered set of frame representations?*
 
@@ -70,9 +70,7 @@ Example question: *Does v3 actually use temporal order, or can it perform simila
 
 **Typical aim:** replace, remove, extend, or substantially modify part of one supplied architecture version and test the consequences.
 
-There are two appropriate implementation modes.
-
-### B1 — Local component replacement in Colab
+### B1 — Local component replacement in Colab — recommended
 
 Use this when the change is concentrated in one component or can be cleanly expressed as a subclass, wrapper, replacement module, configuration, or small amount of new code.
 
@@ -108,38 +106,30 @@ If the supplied API permits component injection, use it. If not, a small wrapper
 
 - **Architecture repository:** unchanged reference code.
 - **Notebook:** the student's replacement component and experiment.
-- **Student fork:** unnecessary unless the change spreads across the codebase.
+- **Student fork:** unnecessary.
 
-### B2 — Repository modification / fork
+### B2 — Substantial multi-file change — advanced, authorization required
 
-Use this when the intervention requires coordinated changes across several supplied source files, changes interfaces used throughout the architecture, or is no longer readable as a small notebook-local replacement.
+If the intervention genuinely requires coordinated changes across several supplied source files or changes interfaces throughout a supplied version, discuss the implementation approach with the module team **before** using a repository/fork workflow.
 
-Workflow:
+The normal solution is to keep the assessment notebook as the experimental record and submit any changed source/configuration files alongside it.
 
-1. Fork `aljiro/dnnls_architecture` on GitHub.
-2. Make the architectural changes in the student's fork.
-3. Keep the final implementation in that fork.
-4. Record the **fork URL** in the assessment notebook.
-5. Clone the fork from Colab and run the experiments there.
+A **public GitHub fork is an advanced option and requires authorization from the module team before it is used for assessed work**. The supplied architecture repository will be public, and forks of a public GitHub repository are also public. Other students may therefore be able to see code placed in the fork during the assessment period.
 
-For example:
+Do not create a public fork merely because it seems more sophisticated. Use one only where its organisational benefits clearly outweigh the exposure of the assessed implementation and the module team has agreed that it is appropriate.
 
-```python
-STUDENT_REPO = "https://github.com/STUDENT/dnnls_architecture.git"
+If an authorized fork is used:
 
-!git clone --quiet "$STUDENT_REPO" /content/student_architecture
-%cd /content/student_architecture
-!pip install -q -e .
-%cd /content
-```
+1. keep the change focused on the selected architecture version;
+2. keep the experimental question, comparisons, outputs and interpretation in the Colab notebook;
+3. record the fork URL in the notebook/submission manifest; and
+4. do **not** open a pull request to the supplied architecture repository unless specifically asked to do so.
 
-A commit SHA is **not required**. A pull request back to the supplied repository is also optional. If one exists, students may include its URL because the PR diff can make the change easier to inspect.
+A commit SHA and pull request are not assessment requirements.
 
-The experiment, results, comparison and interpretation still belong in the assessment notebook.
+### When is B2 justified?
 
-### When to move from B1 to B2
-
-Use the fork workflow when you find yourself copying large unchanged classes into the notebook, modifying several connected source files, or needing the notebook to reconstruct a miniature copy of the repository. Do not use a fork merely because Git feels more sophisticated.
+Consider the advanced workflow only when you find yourself copying large unchanged classes into the notebook, modifying several connected source files, or needing the notebook to reconstruct a miniature copy of the repository. Most Route B projects should remain in B1.
 
 ---
 
@@ -147,7 +137,7 @@ Use the fork workflow when you find yourself copying large unchanged classes int
 
 **Typical aim:** construct a substantially different solution, such as a Transformer + CLIP system, and compare it fairly with one or more supplied architectures.
 
-### C1 — Self-contained alternative in the notebook
+### C1 — Self-contained alternative in the notebook — recommended
 
 If the alternative can remain compact and readable, import the reference model and define the new model in the notebook or in a small generated module.
 
@@ -170,11 +160,11 @@ class ClipTransformerModel(nn.Module):
     ...
 ```
 
-### C2 — Student repository for a substantial alternative
+### C2 — Substantial external implementation — advanced, authorization required
 
-If the alternative architecture has multiple modules, custom training code, configurations, or enough source code that the notebook becomes difficult to inspect, place it in a student fork/repository and record the repository URL.
+If the alternative architecture has multiple modules, custom training code, configurations, or enough source code that the notebook becomes difficult to inspect, discuss the implementation arrangement with the module team first.
 
-Again, no commit SHA is required. A PR is optional.
+Normally, supporting source files can simply be submitted alongside the notebook. A public repository/fork for assessed implementation is an advanced option and requires authorization because other students may be able to view the code.
 
 The notebook should still make the comparison legible: reference model, alternative model, common dataset/split, controlled training/evaluation choices, results and interpretation.
 
@@ -212,17 +202,23 @@ These are not equivalent claims and require different evidence.
 
 ---
 
-## Choosing between notebook code and a fork
+## Choosing where your code should live
 
 | Situation | Recommended implementation |
 |---|---|
 | No architecture change; analysis only | Import reference + notebook experiment |
-| One replaceable module/component | Import reference + define changed component in notebook |
+| One replaceable module/component | Import reference + changed component in notebook |
 | Small alternative model | Reference import + alternative in notebook / `student_model.py` |
-| Several coordinated changes to supplied source | Student fork + repository URL |
-| Large alternative architecture/codebase | Student repository/fork + repository URL |
+| Several coordinated changes to supplied source | Supporting source files submitted with notebook; discuss with module team |
+| Public fork/repository for assessed implementation | **Advanced; authorization required** |
 
-A fork does **not** improve the mark by itself. It is simply a practical way of keeping a substantial implementation organised and inspectable.
+A repository or fork does **not** improve the mark by itself. It is only an organisational tool.
+
+## Process evidence and academic integrity
+
+The notebook, full Gemini conversation, selected AI-trail moments, experimental outputs and any submitted implementation files together provide evidence of how the investigation developed. They make it easier to connect a student's reasoning with the code and results they produced.
+
+These artifacts are **process evidence, not a guarantee of authorship**. Students remain responsible for understanding and being able to explain the decisions, implementation and claims in their submission. Where the provenance of work is unclear, the module team may use the submitted process evidence in accordance with normal university academic-integrity procedures.
 
 ## What to record in the notebook
 
@@ -230,10 +226,9 @@ Whichever workflow you choose, identify:
 
 - architecture version/folder (`v1`, `v2`, etc.);
 - supplied checkpoint/dataset version where relevant;
-- whether the intervention is notebook-local or in a student repository;
-- student repository URL if used;
-- optional pull request URL if one exists;
-- the specific component/files changed;
+- whether the intervention is notebook-local or uses supporting source files;
+- authorized student repository/fork URL if one is used;
+- the specific component/files changed; and
 - the reference condition used for comparison.
 
-The notebook remains the main assessment artifact: it should contain the question, reasoning, experiment, evidence and conclusions even when the implementation itself lives in a repository.
+The notebook remains the main assessment artifact: it should contain the question, reasoning, experiment, evidence and conclusions even when supporting implementation files are used.
