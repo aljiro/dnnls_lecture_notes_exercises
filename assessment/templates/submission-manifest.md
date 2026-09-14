@@ -24,15 +24,14 @@ Select the approach used:
 
 - [ ] Supplied architecture imported unchanged; investigation/analysis performed in the notebook.
 - [ ] Supplied architecture imported; changed/replacement component defined in the notebook or a submitted supporting file.
-- [ ] Substantial implementation stored in a student repository/fork.
+- [ ] Advanced repository/fork workflow — authorized by the module team before use.
 
-If a student repository/fork was used:
+If the advanced repository/fork workflow was authorized:
 
 **Student repository URL:**  
-**Pull request URL (optional):**  
 **Main files/components changed:**  
 
-A commit SHA and pull request are **not required**. If you use a repository/fork, make sure the submitted/final version of your implementation is accessible from the repository URL and do not replace it with unrelated work after submission.
+A commit SHA and pull request are **not required**. Do not use a public repository/fork for assessed implementation unless the module team has authorized that workflow.
 
 ## Student-created or modified artifacts
 
@@ -54,7 +53,7 @@ List every Gemini conversation materially used for the submitted work.
 
 - [ ] The notebook opens without relying on files that exist only in my temporary Colab runtime.
 - [ ] The architecture version/folder (`v1`, `v2`, etc.) is identified.
-- [ ] If I used a student repository/fork, its URL is recorded and the submitted implementation is accessible there.
+- [ ] If I used a student repository/fork, I obtained authorization first and recorded its URL.
 - [ ] No passwords, API keys, or access tokens are included in the notebook, outputs, or transcript.
 - [ ] Any credential redaction in the transcript is marked `[REDACTED CREDENTIAL]`.
 - [ ] The notebook contains exactly four selected AI-interaction moments in Section 9.
