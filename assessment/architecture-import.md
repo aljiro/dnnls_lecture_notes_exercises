@@ -6,7 +6,7 @@ The supplied DNNLS architectures live in:
 
 The repository contains the course architecture versions in separate folders/modules (`v1`, `v2`, and so on). For the assessment, students should normally **import the supplied architecture rather than copy it into the notebook**.
 
-For route-specific examples, including when to use a student fork, see [`workflows.md`](workflows.md).
+For route-specific examples, including when an external implementation is appropriate, see [`workflows.md`](workflows.md).
 
 ## Recommended setup
 
@@ -71,17 +71,20 @@ A useful design principle for the architecture repository is therefore to make m
 
 > **Import the reference system; expose the student's intervention.**
 
-## When a student fork is appropriate
+## Substantial changes across several source files
 
-A fork is useful when an intervention requires coordinated changes across several supplied source files, changes interfaces throughout a supplied version, or becomes too large to represent clearly as a notebook-local component.
+If an intervention requires coordinated changes across several supplied source files, changes interfaces throughout a supplied version, or becomes too large to represent clearly as a notebook-local component, discuss the implementation approach with the module team first.
 
-In that case the student may:
+The normal option is to submit the changed source/configuration files alongside the notebook.
 
-1. fork `aljiro/dnnls_architecture`;
-2. modify the relevant version/folder in their fork;
-3. keep the final implementation in that fork;
-4. record the **fork URL** in the assessment notebook; and
-5. clone the fork from Colab for the experiments.
+A **public student repository or fork is an advanced option and requires authorization from the module team before it is used for assessed work**. Once `dnnls_architecture` is public, a GitHub fork of it will also be public, so code placed in that fork may be visible to other students during the assessment period.
+
+If an authorized fork is used, the student should:
+
+1. modify only the relevant version/folder;
+2. record the fork URL in the assessment notebook;
+3. clone the fork from Colab for the experiments; and
+4. avoid opening a pull request to the supplied architecture repository unless specifically asked to do so.
 
 For example:
 
@@ -94,19 +97,17 @@ STUDENT_REPO = "https://github.com/STUDENT/dnnls_architecture.git"
 %cd /content
 ```
 
-A commit SHA is **not required**. A pull request is also optional. If a student creates one, its URL can be included because the diff may make a substantial architectural change easier to inspect.
-
-The student should ensure that the final submitted implementation remains accessible from the repository URL after submission.
+A commit SHA and pull request are **not required** for the assessment.
 
 ## What stays in the Colab notebook?
 
-Even when implementation code lives in a student fork, the assessment notebook remains the main investigation artifact. It should contain the question, prediction, setup, experimental comparison, controls, results, figures, interpretation, limitations and AI interaction record.
+Even when implementation code lives outside the notebook, the assessment notebook remains the main investigation artifact. It should contain the question, prediction, setup, experimental comparison, controls, results, figures, interpretation, limitations and AI interaction record.
 
 A useful separation is:
 
 ```text
 supplied architecture repo  -> reference implementation
-student fork (if needed)    -> substantial implementation change
+supporting source/fork      -> substantial implementation change, only if needed
 assessment Colab            -> experiment, evidence and reasoning
 ```
 
@@ -114,7 +115,9 @@ For small changes, the middle layer disappears: the changed component can live d
 
 ## Public repository
 
-The architecture repository is intended to be public for teaching. Public visibility means students can read and fork the repository; it does **not** by itself give them permission to push changes to the original repository. Students can work in their own forks and, if appropriate, open a pull request back to the original project.
+The architecture repository is intended to be public for teaching. Public visibility means students can read and fork the repository; it does **not** give them permission to push changes to the original repository.
+
+Because public forks are themselves public, do not use a public fork for assessed implementation unless the module team has authorized that workflow.
 
 ## Checkpoints, datasets and generated artifacts
 
@@ -129,9 +132,8 @@ Students should record:
 - architecture version/folder (`v1`, `v2`, etc.);
 - supplied checkpoint identifier where relevant;
 - dataset/version;
-- whether their intervention is notebook-local or repository-based;
-- student fork/repository URL if one is used;
-- optional pull request URL if one was created;
+- whether their intervention is notebook-local or uses supporting source files;
+- authorized student repository/fork URL if one is used; and
 - the specific component or files changed.
 
 See [`workflows.md`](workflows.md) for complete examples for Routes A, B, C and D.
