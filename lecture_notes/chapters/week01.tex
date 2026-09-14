@@ -47,9 +47,12 @@ Neural networks alter this division of labour. Intermediate representations can 
 
 The recent development of large pretrained and foundation models extends the same tendency. A representation may be learned from a very broad corpus with a self-supervised objective, then reused or adapted for many later tasks \parencite{bommasani2021}. The centre of gravity has moved from ``which features shall we program?'' toward ``what objective, data and architecture will cause useful features to emerge?''
 
+The convergence of these traditions is summarised in \cref{fig:week1-streams}. Statistics contributes methods for estimation and reasoning under uncertainty; computation and artificial intelligence contribute algorithmic and symbolic approaches; neuroscience and pattern recognition contribute ideas about adaptive weighted units and distributed representations. Modern deep learning inherits from all three while increasingly shifting the burden of feature design toward learned representations.
+
 \begin{figure}[ht]
-  \figureaction{Draw three streams labelled ``statistics'', ``computation/AI'' and ``neuroscience/pattern recognition'' flowing into ``modern machine learning / deep learning''. Under each stream place 2--3 concepts rather than a timeline: estimation and uncertainty; algorithms and symbolic reasoning; adaptive weighted units and distributed representations. End with learned representations and foundation models.}
-  \caption{A conceptual, rather than chronological, history of machine learning. Modern deep learning inherits different questions from several intellectual traditions.}
+  \centering
+  \includegraphics[width=\textwidth]{images/week01_streams.png}
+  \caption{Three intellectual traditions that shaped modern machine learning. Statistics contributed estimation and reasoning under uncertainty; computation and artificial intelligence contributed algorithms and symbolic representations; neuroscience and pattern recognition contributed ideas about adaptive weighted units and distributed representation. Modern deep learning combines these influences in systems that learn useful representations from data, a tendency extended by large pretrained foundation models.}
   \label{fig:week1-streams}
 \end{figure}
 
