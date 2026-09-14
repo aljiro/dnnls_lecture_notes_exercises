@@ -2,7 +2,11 @@
 
 This document shows practical ways to organise the implementation for each assessment route. The examples are **patterns**, not required architectures. Use the lightest workflow that keeps the reference system identifiable and makes your own contribution easy to inspect.
 
-The supplied architecture repository contains several versions in separate folders. The repository itself should be pinned to the assessment release/tag or an exact commit. The architecture folder you choose, for example `v1/`, identifies the reference model inside that release.
+The supplied architectures live in:
+
+`https://github.com/aljiro/dnnls_architecture`
+
+The repository contains several versions in separate folders/modules (`v1`, `v2`, and so on). The assessment notebook will use a fixed course release selected by the module team, so students do **not** need to record Git commit SHAs for the supplied architecture.
 
 The central principle is:
 
@@ -12,27 +16,20 @@ Do not copy an entire supplied architecture into the assessment notebook simply 
 
 ## Common setup
 
-A typical Colab setup is:
+The released assessment notebook should already contain the correct repository and course release. Conceptually, the setup is:
 
 ```python
-ARCHITECTURE_REPO = "https://github.com/OWNER/ARCHITECTURE_REPO.git"
-ARCHITECTURE_REF = "<assessment-release-tag-or-commit>"
+ARCHITECTURE_REPO = "https://github.com/aljiro/dnnls_architecture.git"
+ARCHITECTURE_RELEASE = "<assessment-release>"  # supplied by the module team
 
-!git clone --quiet "$ARCHITECTURE_REPO" /content/architecture_src
-%cd /content/architecture_src
-!git checkout --quiet "$ARCHITECTURE_REF"
+!git clone --quiet "$ARCHITECTURE_REPO" /content/dnnls_architecture
+%cd /content/dnnls_architecture
+!git checkout --quiet "$ARCHITECTURE_RELEASE"
 !pip install -q -e .
 %cd /content
 ```
 
-Record both the repository reference and the architecture version/folder used, for example:
-
-```text
-Repository release: assessment-2026
-Architecture: v1
-```
-
-The exact import names will depend on the architecture repository.
+Students then choose the architecture version/folder used in the investigation, for example `v1`.
 
 ---
 
@@ -47,7 +44,7 @@ Use the supplied repository **read-only**. Import the chosen architecture versio
 For example:
 
 ```python
-from architecture.v1.model import StoryModel
+from v1.model import StoryModel
 
 model = StoryModel(...)
 ```
@@ -55,22 +52,17 @@ model = StoryModel(...)
 Then investigate it in the notebook:
 
 ```python
-# Example: inspect or intervene on an internal representation
 features = model.encoder(images)
 # analysis / probe / perturbation / comparison follows
 ```
 
-### What belongs where?
+**What belongs where?**
 
 - **Architecture repository:** unchanged reference architecture.
 - **Notebook:** hypothesis, experimental controls, probes, ablations, measurements, figures and interpretation.
 - **Student fork:** normally unnecessary.
 
-### Example investigation
-
-Question: *Does v3 actually use temporal order, or can it perform similarly from an unordered set of frame representations?*
-
-A useful notebook could compare the reference input with a shuffled-order control while leaving weights, data, evaluation and all other settings unchanged.
+Example question: *Does v3 actually use temporal order, or can it perform similarly from an unordered set of frame representations?*
 
 ---
 
@@ -82,13 +74,13 @@ There are two appropriate implementation modes.
 
 ### B1 — Local component replacement in Colab
 
-Use this when your change is concentrated in one component or can be cleanly expressed as a subclass, wrapper, replacement module, configuration, or small amount of new code.
+Use this when the change is concentrated in one component or can be cleanly expressed as a subclass, wrapper, replacement module, configuration, or small amount of new code.
 
 Import the unchanged parts of the reference architecture:
 
 ```python
-from architecture.v1.model import StoryModel
-from architecture.v1.temporal import ReferenceTemporalModel
+from v1.model import StoryModel
+from v1.temporal import ReferenceTemporalModel
 ```
 
 Define only the changed component:
@@ -100,11 +92,10 @@ class MyTemporalModel(ReferenceTemporalModel):
         # changed implementation
 
     def forward(self, x):
-        # changed behaviour
         ...
 ```
 
-Then construct the changed system using the supplied implementation wherever possible:
+Then compare it with the supplied reference:
 
 ```python
 reference = StoryModel(...)
@@ -116,35 +107,33 @@ If the supplied API permits component injection, use it. If not, a small wrapper
 **What belongs where?**
 
 - **Architecture repository:** unchanged reference code.
-- **Notebook:** the student's replacement component and the experiment comparing it with the reference.
+- **Notebook:** the student's replacement component and experiment.
 - **Student fork:** unnecessary unless the change spreads across the codebase.
 
 ### B2 — Repository modification / fork
 
-Use this when the proposed intervention requires coordinated changes across several supplied source files, changes interfaces used throughout the architecture, or is no longer readable as a small notebook-local replacement.
+Use this when the intervention requires coordinated changes across several supplied source files, changes interfaces used throughout the architecture, or is no longer readable as a small notebook-local replacement.
 
 Workflow:
 
-1. Fork the architecture repository.
-2. Make the architectural changes in the fork.
-3. Commit the final implementation.
-4. Record the student repository and exact commit SHA in the assessment notebook.
-5. Clone/check out that commit from Colab and run the experiments there.
+1. Fork `aljiro/dnnls_architecture` on GitHub.
+2. Make the architectural changes in the student's fork.
+3. Keep the final implementation in that fork.
+4. Record the **fork URL** in the assessment notebook.
+5. Clone the fork from Colab and run the experiments there.
 
 For example:
 
 ```python
-STUDENT_REPO = "https://github.com/STUDENT/ARCHITECTURE_REPO.git"
-STUDENT_COMMIT = "<exact-commit-sha>"
+STUDENT_REPO = "https://github.com/STUDENT/dnnls_architecture.git"
 
 !git clone --quiet "$STUDENT_REPO" /content/student_architecture
 %cd /content/student_architecture
-!git checkout --quiet "$STUDENT_COMMIT"
 !pip install -q -e .
 %cd /content
 ```
 
-The **Git diff is useful supporting evidence** because it makes the implementation change inspectable. A pull request is optional; it is not required merely to obtain a diff or complete Route B.
+A commit SHA is **not required**. A pull request back to the supplied repository is also optional. If one exists, students may include its URL because the PR diff can make the change easier to inspect.
 
 The experiment, results, comparison and interpretation still belong in the assessment notebook.
 
@@ -158,16 +147,12 @@ Use the fork workflow when you find yourself copying large unchanged classes int
 
 **Typical aim:** construct a substantially different solution, such as a Transformer + CLIP system, and compare it fairly with one or more supplied architectures.
 
-Two patterns are appropriate.
-
 ### C1 — Self-contained alternative in the notebook
 
-If the alternative can remain compact and readable, import the reference model from the architecture repository and define the new model in the notebook or in a small generated module.
-
-For example:
+If the alternative can remain compact and readable, import the reference model and define the new model in the notebook or in a small generated module.
 
 ```python
-from architecture.v4.model import StoryModel as ReferenceModel
+from v4.model import StoryModel as ReferenceModel
 
 class ClipTransformerModel(nn.Module):
     ...
@@ -185,25 +170,17 @@ class ClipTransformerModel(nn.Module):
     ...
 ```
 
-The notebook then imports it and contains the training/evaluation comparison.
-
 ### C2 — Student repository for a substantial alternative
 
-If the alternative architecture has multiple modules, custom training code, configurations, or enough source code that the notebook becomes difficult to inspect, place it in a student fork/repository and pin the exact commit used for the results.
+If the alternative architecture has multiple modules, custom training code, configurations, or enough source code that the notebook becomes difficult to inspect, place it in a student fork/repository and record the repository URL.
+
+Again, no commit SHA is required. A PR is optional.
 
 The notebook should still make the comparison legible: reference model, alternative model, common dataset/split, controlled training/evaluation choices, results and interpretation.
 
 ### Important comparison rule
 
 Do not treat “higher score” as the whole investigation. Make clear what differs besides architecture: pretrained representations, parameter count, training compute, data, augmentation, objective, or external knowledge may all explain a gain.
-
-A good Route C submission therefore distinguishes:
-
-```text
-reference implementation  -> imported from pinned supplied repo
-alternative implementation -> notebook or pinned student repo
-experiment/evidence         -> assessment notebook
-```
 
 ---
 
@@ -213,9 +190,9 @@ experiment/evidence         -> assessment notebook
 
 ### Recommended workflow
 
-In most cases, **do not modify the architecture repository at all**. Import a pinned supplied architecture and add the scientific instrumentation in the notebook.
+In most cases, **do not modify the architecture repository at all**. Import a supplied architecture and add the scientific instrumentation in the notebook.
 
-For example, for the question *“Does the model learn the concept of a place?”*, you might:
+For the question *“Does the model learn the concept of a place?”*, for example, you might:
 
 1. select a trained architecture and checkpoint;
 2. define what evidence would count as place information;
@@ -223,24 +200,6 @@ For example, for the question *“Does the model learn the concept of a place?�
 4. run a probe, controlled retrieval analysis, clustering comparison, or intervention;
 5. include a control that distinguishes “information can be decoded” from “the model uses this information”; and
 6. interpret the result cautiously.
-
-Illustratively:
-
-```python
-from architecture.v5.model import StoryModel
-
-model = StoryModel(...)
-model.load_state_dict(...)
-
-representations = extract_representations(model, loader)
-# probe / intervention / shuffled-label control / comparison
-```
-
-### What belongs where?
-
-- **Architecture repository:** unchanged model implementation.
-- **Notebook:** operational definition of the scientific claim, probe/intervention, controls, results and interpretation.
-- **Student fork:** normally unnecessary; use one only if the scientific experiment genuinely requires changing model internals rather than observing/intervening through a small wrapper or hook.
 
 A strong Route D investigation distinguishes claims such as:
 
@@ -255,28 +214,25 @@ These are not equivalent claims and require different evidence.
 
 ## Choosing between notebook code and a fork
 
-Use this rule of thumb:
-
 | Situation | Recommended implementation |
 |---|---|
 | No architecture change; analysis only | Import reference + notebook experiment |
 | One replaceable module/component | Import reference + define changed component in notebook |
 | Small alternative model | Reference import + alternative in notebook / `student_model.py` |
-| Several coordinated changes to supplied source | Student fork + pinned commit |
-| Large alternative architecture/codebase | Student repository/fork + pinned commit |
+| Several coordinated changes to supplied source | Student fork + repository URL |
+| Large alternative architecture/codebase | Student repository/fork + repository URL |
 
 A fork does **not** improve the mark by itself. It is simply a practical way of keeping a substantial implementation organised and inspectable.
 
 ## What to record in the notebook
 
-Whichever workflow you choose, the final notebook should identify:
+Whichever workflow you choose, identify:
 
-- supplied architecture repository;
-- supplied repository tag/commit;
-- architecture version/folder used (`v1`, `v2`, etc.);
+- architecture version/folder (`v1`, `v2`, etc.);
 - supplied checkpoint/dataset version where relevant;
 - whether the intervention is notebook-local or in a student repository;
-- student repository + exact commit if used;
+- student repository URL if used;
+- optional pull request URL if one exists;
 - the specific component/files changed;
 - the reference condition used for comparison.
 
