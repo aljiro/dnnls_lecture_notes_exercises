@@ -1,0 +1,47 @@
+name: Build lecture notes v0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-lecture-notes-v0.yml'
+      - 'lecture_notes/**'
+      - 'references.bib'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compile lecture notes
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: main.tex
+          working_directory: lecture_notes
+          args: -pdf -file-line-error -halt-on-error -interaction=nonstopmode
+
+      - name: Copy compiled PDF to repository root
+        run: cp lecture_notes/main.pdf lecture_notes_v0.pdf
+
+      - name: Verify PDF
+        run: |
+          test -s lecture_notes_v0.pdf
+          file lecture_notes_v0.pdf
+          pdfinfo lecture_notes_v0.pdf | grep -E '^(Pages|Page size|File size):'
+
+      - name: Commit compiled PDF
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lecture_notes_v0.pdf
+          if git diff --cached --quiet; then
+            echo 'PDF is unchanged.'
+          else
+            git commit -m 'Add compiled lecture notes v0 [skip ci]'
+            git push
+          fi
