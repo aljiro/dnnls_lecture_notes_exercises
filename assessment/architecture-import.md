@@ -1,54 +1,52 @@
 # Using the architecture repository from Google Colab
 
-A Colab notebook can use Python code directly from the separate DNNLS architecture repository. For this assessment, that is normally preferable to copying supplied classes and functions into the notebook.
+The supplied DNNLS architectures live in:
 
-The architecture repository contains the supplied model versions in separate folders/modules (`v1`, `v2`, and so on). The **repository itself** should be pinned to the assessment release/tag or an exact commit; the chosen version/folder identifies the architecture being investigated inside that release.
+`https://github.com/aljiro/dnnls_architecture`
+
+The repository contains the course architecture versions in separate folders/modules (`v1`, `v2`, and so on). For the assessment, students should normally **import the supplied architecture rather than copy it into the notebook**.
 
 For route-specific examples, including when to use a student fork, see [`workflows.md`](workflows.md).
 
-## Recommended pattern: clone a pinned repository release
+## Recommended setup
 
-For a public repository:
+The assessment notebook will use a fixed course release/tag chosen by the module team. Students do not need to find or record a commit SHA.
+
+A typical setup cell is:
 
 ```python
-ARCHITECTURE_REPO = "https://github.com/OWNER/ARCHITECTURE_REPO.git"
-ARCHITECTURE_REF = "<assessment-release-tag-or-commit>"
+ARCHITECTURE_REPO = "https://github.com/aljiro/dnnls_architecture.git"
+ARCHITECTURE_RELEASE = "<assessment-release>"  # supplied by the module team
 
-!git clone --quiet "$ARCHITECTURE_REPO" /content/architecture_src
-%cd /content/architecture_src
-!git checkout --quiet "$ARCHITECTURE_REF"
+!git clone --quiet "$ARCHITECTURE_REPO" /content/dnnls_architecture
+%cd /content/dnnls_architecture
+!git checkout --quiet "$ARCHITECTURE_RELEASE"
 !pip install -q -e .
 %cd /content
 ```
+
+The released assessment notebook should already contain the correct `ARCHITECTURE_RELEASE`. Students should not need to edit it.
 
 If the repository is not packaged with `pyproject.toml` or `setup.py`, it can instead be added to the Python path:
 
 ```python
 import sys
-sys.path.insert(0, "/content/architecture_src")
+sys.path.insert(0, "/content/dnnls_architecture")
 ```
 
-Then import the required version from its module/folder, for example:
+Students then select the architecture version/folder they are investigating, for example `v1`.
 
-```python
-from architecture.v1.model import StoryModel
-```
+## What students need to record
 
-The exact package/import names will depend on the final architecture repository structure.
-
-## Pin the repository, then choose the architecture version
-
-The final notebook should record both:
+For the supplied reference system, students only need to identify:
 
 ```text
-Architecture repository: OWNER/ARCHITECTURE_REPO
-Repository tag/commit: assessment-2026
-Architecture version: v1
+Architecture: v1
+Checkpoint: ...       # if relevant
+Dataset/version: ...  # if relevant
 ```
 
-Do not rely on a moving `main` branch for the submitted result. A later change to the repository should not alter what the student's notebook means.
-
-Keeping `v1`, `v2`, `v3`, etc. together inside the same pinned repository release also makes it possible to compare versions within one Colab runtime without repeatedly checking out different historical commits.
+The module team controls the repository release used by the notebook, so there is no need for every student to copy a tag or commit identifier into the report.
 
 ## Do not copy an entire version just to modify one part
 
@@ -57,8 +55,8 @@ If a student wants to change one component of `v1`, they should normally import 
 For example:
 
 ```python
-from architecture.v1.model import StoryModel
-from architecture.v1.temporal import ReferenceTemporalModel
+from v1.model import StoryModel
+from v1.temporal import ReferenceTemporalModel
 
 class MyTemporalModel(ReferenceTemporalModel):
     ...
@@ -75,30 +73,30 @@ A useful design principle for the architecture repository is therefore to make m
 
 ## When a student fork is appropriate
 
-A student fork is useful when an intervention requires **coordinated changes across several source files**, changes interfaces throughout a supplied version, or becomes too large to represent clearly as a notebook-local component.
+A fork is useful when an intervention requires coordinated changes across several supplied source files, changes interfaces throughout a supplied version, or becomes too large to represent clearly as a notebook-local component.
 
 In that case the student may:
 
-1. fork the architecture repository;
-2. modify the relevant version/folder;
-3. commit the final implementation;
-4. record the student repository and exact commit SHA; and
-5. clone that pinned commit from the assessment notebook for the experiments.
+1. fork `aljiro/dnnls_architecture`;
+2. modify the relevant version/folder in their fork;
+3. keep the final implementation in that fork;
+4. record the **fork URL** in the assessment notebook; and
+5. clone the fork from Colab for the experiments.
 
-Example:
+For example:
 
 ```python
-STUDENT_REPO = "https://github.com/STUDENT/ARCHITECTURE_REPO.git"
-STUDENT_COMMIT = "<exact-commit-sha>"
+STUDENT_REPO = "https://github.com/STUDENT/dnnls_architecture.git"
 
 !git clone --quiet "$STUDENT_REPO" /content/student_architecture
 %cd /content/student_architecture
-!git checkout --quiet "$STUDENT_COMMIT"
 !pip install -q -e .
 %cd /content
 ```
 
-A pull request is **optional**. The commit history or Git diff can make substantial changes easier to inspect, but creating a PR is not itself an assessment requirement.
+A commit SHA is **not required**. A pull request is also optional. If a student creates one, its URL can be included because the diff may make a substantial architectural change easier to inspect.
+
+The student should ensure that the final submitted implementation remains accessible from the repository URL after submission.
 
 ## What stays in the Colab notebook?
 
@@ -114,11 +112,9 @@ assessment Colab            -> experiment, evidence and reasoning
 
 For small changes, the middle layer disappears: the changed component can live directly in the notebook.
 
-## Private repositories
+## Public repository
 
-Private repositories can also be used, but authentication must be handled carefully. Do **not** place a GitHub personal access token in a submitted notebook, output cell, URL, or Gemini transcript.
-
-For teaching, the simplest arrangement is usually to make the architecture repository readable to students through an authenticated GitHub/Colab workflow and provide a setup cell that does not expose credentials. If authentication becomes cumbersome, distributing a tagged release/package is safer than asking students to paste tokens.
+The architecture repository is intended to be public for teaching. Public visibility means students can read and fork the repository; it does **not** by itself give them permission to push changes to the original repository. Students can work in their own forks and, if appropriate, open a pull request back to the original project.
 
 ## Checkpoints, datasets and generated artifacts
 
@@ -130,13 +126,12 @@ Do not make the final result depend on a temporary file that exists only in one 
 
 Students should record:
 
-- supplied architecture repository;
-- supplied repository tag/commit;
 - architecture version/folder (`v1`, `v2`, etc.);
 - supplied checkpoint identifier where relevant;
 - dataset/version;
 - whether their intervention is notebook-local or repository-based;
-- student repository and exact commit if a fork/repository is used;
+- student fork/repository URL if one is used;
+- optional pull request URL if one was created;
 - the specific component or files changed.
 
 See [`workflows.md`](workflows.md) for complete examples for Routes A, B, C and D.
