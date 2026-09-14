@@ -94,14 +94,18 @@ The assessment notebook contains a Gemini instruction context. If it is not acti
 
 Gemini is instructed to treat each student prompt as one investigation step and provide material for **one notebook cell**: one code cell; short Markdown + one code cell; or Markdown-only when computation is unnecessary.
 
-Every Gemini response is also required to end with a compact **AI TRAIL** containing four categories:
+Every Gemini response must also begin with exactly **one category label** as the first text in the response:
 
-- `[CLARIFICATION]` — an assumption, definition, question, or refinement;
-- `[MAIN CHANGE]` — the main implementation, model, data, or experimental-design change;
-- `[CRITICAL]` — a risk, uncertainty, alternative explanation, disagreement, or validation check;
-- `[INTERPRETATION]` — what the available evidence does or does not currently support.
+- `[MAIN]` — implements, changes, runs, or otherwise advances the main investigation;
+- `[CLARIFICATION]` — asks for, resolves, or states an assumption or definition needed before proceeding;
+- `[CRITICAL]` — challenges a claim, identifies a confound or risk, or proposes a validation check;
+- `[INTERPRETATION]` — explains what existing evidence does or does not support.
 
-The trail is an index into the conversation. It is **not** a replacement for the conversation itself.
+For example:
+
+> `[MAIN] Implement a basic autoencoder`
+
+The category is chosen according to the **main purpose of that response**. Gemini should use one label only and should not append a separate multi-category trail at the end. These labels provide a lightweight chronological trail through the full conversation.
 
 ## AI interaction record — assessed evidence
 
@@ -130,7 +134,7 @@ A transcript template is provided in [`templates/gemini-conversation.md`](templa
 
 ## Process evidence and academic integrity
 
-The notebook, full Gemini conversation, selected AI-trail moments, experimental outputs and any submitted implementation files together provide evidence of how the investigation developed. They make it easier to connect reasoning with code changes and results.
+The notebook, full Gemini conversation, category-labelled responses, selected AI-interaction moments, experimental outputs and any submitted implementation files together provide evidence of how the investigation developed. They make it easier to connect reasoning with code changes and results.
 
 These artifacts are **process evidence rather than a guarantee of authorship**. You remain responsible for understanding and being able to explain the decisions, implementation and claims in your submission. Where the provenance of work is unclear, the module team may use the submitted process evidence in accordance with normal university academic-integrity procedures.
 
