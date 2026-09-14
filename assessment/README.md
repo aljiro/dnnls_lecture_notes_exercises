@@ -20,25 +20,25 @@ Detailed implementation patterns for all four routes are provided in [`workflows
 
 Extend or deepen an investigation based on one of the supplied architecture versions or weekly practicals. Examples include asking where performance comes from, which component matters, what a representation contains, or where a particular failure originates.
 
-**Typical workflow:** import a pinned supplied architecture version without changing it, and perform probes, ablations, interventions, diagnostics and analysis in the assessment notebook. A student fork is normally unnecessary. See [Route A workflow](workflows.md#route-a--investigate-the-existing-architecture).
+**Typical workflow:** import a supplied architecture version without changing it, and perform probes, ablations, interventions, diagnostics and analysis in the assessment notebook. A student fork is normally unnecessary.
 
 ### Route B — Make an important architectural change
 
 Replace, remove, or substantially modify one component of the reference system and test the consequences. The important part is not the size of the change, but the quality of the hypothesis, comparison, controls, and interpretation.
 
-**Typical workflow:** if the change is local, import the reference architecture and define only the changed component in the notebook. If the change requires coordinated edits across several source files, use a student fork and pin the exact commit used for the experiments. See [Route B workflows](workflows.md#route-b--make-an-important-architectural-change).
+**Typical workflow:** if the change is local, import the reference architecture and define only the changed component in the notebook. If the change requires coordinated edits across several source files, use a student fork and record the fork URL.
 
 ### Route C — Build an alternative architecture
 
 Construct a substantially different solution and compare it fairly with the reference system. A Transformer + CLIP approach is one possible example. A more capable model does not automatically constitute a stronger investigation: the comparison must reveal something useful about the task, representation, optimisation, inductive bias, or architecture.
 
-**Typical workflow:** import the reference model from the supplied repository and implement the alternative either in the notebook/small supporting module or, for a substantial multi-file system, in a pinned student repository. See [Route C workflow](workflows.md#route-c--build-an-alternative-architecture).
+**Typical workflow:** import the reference model from the supplied repository and implement the alternative either in the notebook/small supporting module or, for a substantial multi-file system, in a student repository or fork.
 
 ### Route D — Ask a scientific question
 
 Use the architecture to investigate a claim about what or how the system learns. Examples include questions such as whether the model learns a concept of place, whether information about characters or locations can be read from an internal representation, whether the model actually uses a variable that appears predictive, or whether an apparent representation survives an intervention.
 
-**Typical workflow:** keep the supplied architecture unchanged and treat it as the object of study. Put probes, controlled interventions, shuffled-label tests, retrieval analyses or other scientific instrumentation in the notebook. A fork is normally unnecessary. See [Route D workflow](workflows.md#route-d--ask-a-scientific-question).
+**Typical workflow:** keep the supplied architecture unchanged and treat it as the object of study. Put probes, controlled interventions, shuffled-label tests, retrieval analyses or other scientific instrumentation in the notebook.
 
 ## Main submission
 
@@ -64,19 +64,25 @@ You may add cells where necessary, but retain these sections and keep the invest
 
 Use a maximum of **2,000 words of explanatory prose**. Code, references, the supplied template text, and the full Gemini transcript are excluded. Substantive explanatory prose placed inside tables still counts. The intention is to make figures, tables, code, and experimental evidence do much of the work.
 
-## Reproducibility and architecture versions
+## Architecture repository and reproducibility
 
-You may work from any architecture version made available for the module. The supplied versions (`v1`, `v2`, and so on) live as separate folders/modules inside the architecture repository. Record both the architecture version and the exact **repository tag or commit** used. Do not rely on an unpinned moving `main` branch for the final submitted result.
+The supplied architectures are provided in:
 
-Where the architecture lives in a separate repository, prefer importing or cloning the pinned source rather than copying large pieces of supplied model code into the notebook. See [`architecture-import.md`](architecture-import.md).
+`https://github.com/aljiro/dnnls_architecture`
+
+The repository contains the course versions (`v1`, `v2`, and so on) as separate folders/modules. The assessment notebook will use a **fixed course release** selected by the module team. You do not need to find, copy, or report a Git commit SHA for the supplied architecture.
+
+You should record the architecture version you used (`v1`, `v2`, etc.), plus the checkpoint and dataset version where relevant.
+
+Prefer importing the supplied architecture rather than copying large pieces of reference code into the notebook. See [`architecture-import.md`](architecture-import.md).
 
 A good general rule is:
 
 > **Import the reference system; expose your intervention; keep the experiment in the notebook.**
 
-If you substantially alter the supplied implementation, make the change inspectable. For a local change, a focused replacement component in the notebook is preferable to copying the whole architecture. For coordinated multi-file changes, a student fork/repository with an exact commit is appropriate. A pull request is optional; it is not required for the assessment.
+For a local change, a focused replacement component in the notebook is preferable to copying the whole architecture. For coordinated multi-file changes, a student fork/repository is appropriate. Record the **repository URL** if you use one. A commit SHA is not required. A pull request is optional and may be included if its diff helps make the change easier to inspect.
 
-See [`workflows.md`](workflows.md) for examples of choosing between these approaches.
+See [`workflows.md`](workflows.md) for examples for every route.
 
 ## Using Gemini
 
@@ -173,7 +179,7 @@ Submit:
 2. the **full Gemini conversation transcript(s)** (`.pdf`, `.html`, `.md`, or `.txt`);
 3. any supporting source/configuration files required to reproduce changes that are not contained in the notebook.
 
-If your implementation lives in a student repository/fork, record the repository URL and exact commit SHA in the notebook and submission manifest. The notebook must remain understandable even when external supporting files are used.
+If your implementation lives in a student repository/fork, record its URL in the notebook and submission manifest. A pull request URL may also be included if one exists, but is not required.
 
 Use [`templates/submission-manifest.md`](templates/submission-manifest.md) as a final check when preparing the submission.
 
