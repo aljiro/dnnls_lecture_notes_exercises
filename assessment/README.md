@@ -26,13 +26,13 @@ Extend or deepen an investigation based on one of the supplied architecture vers
 
 Replace, remove, or substantially modify one component of the reference system and test the consequences. The important part is not the size of the change, but the quality of the hypothesis, comparison, controls, and interpretation.
 
-**Typical workflow:** if the change is local, import the reference architecture and define only the changed component in the notebook. If the change requires coordinated edits across several source files, use a student fork and record the fork URL.
+**Typical workflow:** if the change is local, import the reference architecture and define only the changed component in the notebook. If the change requires coordinated edits across several source files, discuss the implementation arrangement with the module team. A public student fork/repository is an **advanced option and requires authorization** before it is used for assessed work.
 
 ### Route C — Build an alternative architecture
 
 Construct a substantially different solution and compare it fairly with the reference system. A Transformer + CLIP approach is one possible example. A more capable model does not automatically constitute a stronger investigation: the comparison must reveal something useful about the task, representation, optimisation, inductive bias, or architecture.
 
-**Typical workflow:** import the reference model from the supplied repository and implement the alternative either in the notebook/small supporting module or, for a substantial multi-file system, in a student repository or fork.
+**Typical workflow:** import the reference model from the supplied repository and implement the alternative either in the notebook or a small supporting module. If the implementation becomes a substantial multi-file system, discuss the arrangement with the module team. A public repository/fork is an advanced, authorization-only option.
 
 ### Route D — Ask a scientific question
 
@@ -80,7 +80,9 @@ A good general rule is:
 
 > **Import the reference system; expose your intervention; keep the experiment in the notebook.**
 
-For a local change, a focused replacement component in the notebook is preferable to copying the whole architecture. For coordinated multi-file changes, a student fork/repository is appropriate. Record the **repository URL** if you use one. A commit SHA is not required. A pull request is optional and may be included if its diff helps make the change easier to inspect.
+For a local change, a focused replacement component in the notebook is preferable to copying the whole architecture. If your change requires coordinated edits across several source files, discuss the implementation arrangement with the module team. Supporting source/configuration files can be submitted with the notebook.
+
+A **public GitHub fork/repository for assessed implementation is an advanced option and requires authorization from the module team before use**. Once the supplied architecture repository is public, forks of it are public too, so other students may be able to see code placed there during the assessment period. A pull request is not required.
 
 See [`workflows.md`](workflows.md) for examples for every route.
 
@@ -125,6 +127,12 @@ The transcript may be submitted as PDF, HTML, Markdown, or plain text, provided 
 If your work spans multiple Gemini chats or restarted conversations, include all conversations that materially influenced the submitted work.
 
 A transcript template is provided in [`templates/gemini-conversation.md`](templates/gemini-conversation.md).
+
+## Process evidence and academic integrity
+
+The notebook, full Gemini conversation, selected AI-trail moments, experimental outputs and any submitted implementation files together provide evidence of how the investigation developed. They make it easier to connect reasoning with code changes and results.
+
+These artifacts are **process evidence rather than a guarantee of authorship**. You remain responsible for understanding and being able to explain the decisions, implementation and claims in your submission. Where the provenance of work is unclear, the module team may use the submitted process evidence in accordance with normal university academic-integrity procedures.
 
 ## Evidence before polish
 
@@ -179,7 +187,7 @@ Submit:
 2. the **full Gemini conversation transcript(s)** (`.pdf`, `.html`, `.md`, or `.txt`);
 3. any supporting source/configuration files required to reproduce changes that are not contained in the notebook.
 
-If your implementation lives in a student repository/fork, record its URL in the notebook and submission manifest. A pull request URL may also be included if one exists, but is not required.
+If you have been authorized to use a student repository/fork, record its URL in the notebook and submission manifest.
 
 Use [`templates/submission-manifest.md`](templates/submission-manifest.md) as a final check when preparing the submission.
 
