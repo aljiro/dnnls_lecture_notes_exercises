@@ -39,7 +39,23 @@
 
 \mainmatter
 \input{chapters/architecture-overview}
+
+% Week 1, Figure 1 has been created. Keep the remaining figure actions visible.
+\let\defaultfigureaction\figureaction
+\newcounter{weekonefigureaction}
+\renewcommand{\figureaction}[1]{%
+  \stepcounter{weekonefigureaction}%
+  \ifnum\value{weekonefigureaction}=1
+    \begin{center}
+      \includegraphics[width=0.98\textwidth]{images/week01_streams.pdf}
+    \end{center}%
+  \else
+    \defaultfigureaction{#1}%
+  \fi
+}
 \input{chapters/week01}
+\let\figureaction\defaultfigureaction
+
 \input{chapters/week02}
 \input{chapters/week03}
 \input{chapters/week04}
