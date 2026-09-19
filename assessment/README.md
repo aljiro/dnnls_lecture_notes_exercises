@@ -94,9 +94,10 @@ The assessment notebook contains a Gemini instruction context. If it is not acti
 
 Gemini is instructed to treat each student prompt as one investigation step and provide material for **one notebook cell**: one code cell; short Markdown + one code cell; or Markdown-only when computation is unnecessary.
 
-Every Gemini response must also begin with exactly **one category label** as the first text in the response:
+Every Gemini **chat response** must begin with exactly **one category label**. The **very first character of the response must be `[`**. The label is conversation metadata and must not appear only inside a generated Markdown or code cell.
 
-- `[MAIN]` — implements, changes, runs, or otherwise advances the main investigation;
+- `[BRAINSTORMING]` — explores possible questions, hypotheses, approaches, or project directions before committing to one;
+- `[MAIN]` — implements, changes, runs, or otherwise advances the chosen investigation;
 - `[CLARIFICATION]` — asks for, resolves, or states an assumption or definition needed before proceeding;
 - `[CRITICAL]` — challenges a claim, identifies a confound or risk, or proposes a validation check;
 - `[INTERPRETATION]` — explains what existing evidence does or does not support.
@@ -105,7 +106,7 @@ For example:
 
 > `[MAIN] Implement a basic autoencoder`
 
-The category is chosen according to the **main purpose of that response**. Gemini should use one label only and should not append a separate multi-category trail at the end. These labels provide a lightweight chronological trail through the full conversation.
+An unlabelled response that merely creates a notebook Markdown cell containing `[MAIN]` **does not satisfy the requirement**. Gemini should use one label only and should not append a separate multi-category trail at the end. If Gemini omits the prefix, ask it to reissue the same response with the required category header before continuing.
 
 ## AI interaction record — assessed evidence
 
