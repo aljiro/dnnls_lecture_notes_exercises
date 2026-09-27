@@ -222,6 +222,38 @@ The standard VAE objective can be written as the negative evidence lower bound,
 
 The first term is a reconstruction or negative log-likelihood term. It rewards latents that allow the decoder to account for the particular observation.
 
+\begin{optionalexercise}[title={Mathematical Derivation}]
+For some observation $x$, consider that we wish to maximise its marginal likelihood $p(x)$. Directly computing the marginal likelihood is generally intractable, as it requires integrating over all possible values of the latent variable $z$. We therefore begin with:
+\begin{align*}
+p(x) = \int p(x\mid z)p(z)dz.
+\end{align*}
+Taking the natural logarithm, we have:
+\begin{align*}
+\log p(x) = \log \int p(x\mid z)p(z),dz.
+\end{align*}
+We then introduce the approximate posterior $q(z\mid x)$, which provides a tractable approximation to the true posterior $p(z\mid x)$:
+\begin{align*}
+\log p(x)
+&= \log \int q(z\mid x)
+\frac{p(x\mid z)p(z)}{q(z\mid x)}dz \\
+&\geq \int q(z\mid x)
+\log \bigg(
+\frac{p(x\mid z)p(z)}{q(z\mid x)}
+\bigg)dz \\
+&= \mathbb{E}*{z\sim q(z\mid x)}
+[\log p(x\mid z)]
++ \int q(z\mid x)
+\log\bigg(
+\frac{p(z)}{q(z\mid x)}
+\bigg)dz \\
+&= \mathbb{E}*{z\sim q(z\mid x)}
+[\log p(x\mid z)]
+- D_{\mathrm{KL}}\big(q(z\mid x)\Vert p(z)\big) \\
+&= \text{Equation 9.4}.
+\end{align*}
+\end{optionalexercise}
+
+
 The second term is the Kullback--Leibler divergence. It penalises a posterior that departs too strongly from the chosen prior. Informally, it asks the encoder not to hide each training example in an arbitrary isolated region that the prior will almost never visit.
 
 The two pressures compete. Perfect reconstruction would be easiest if every observation could occupy a highly specific code with no concern for global organisation. Easy prior sampling would be simplest if every posterior looked exactly like the prior, but then the latent might contain little information about the input.
