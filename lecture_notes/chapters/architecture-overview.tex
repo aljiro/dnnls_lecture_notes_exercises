@@ -55,8 +55,9 @@ A convolutional autoencoder first learns a compact latent representation of each
 Several later mechanisms are responses to specific failures. Content-dependent attention can select useful inputs, but selection must be tested rather than assumed. Pretrained components require protection against fine-tuning drift. Per-character prediction works better when each character's own history is preserved rather than compressed into one shared vector. The text generator benefits from attending directly to descriptions and character names. Finally, because the next image is genuinely uncertain, a variational latent models a distribution over possible futures rather than forcing all uncertainty into one deterministic vector.
 
 \begin{figure}[ht]
-  \figureaction{Create a clean high-level block diagram of the final StoryReasoning system. Show four repeated input pairs (frame encoder + text encoder), fusion into a sequence model, then separate branches for image latent/decoder, text embedding/language decoder, and character prediction. Add a small ``stochastic latent'' block on the image branch and memory/cross-attention on the text branch. Keep component names high-level; do not show tensor dimensions.}
-  \caption{The running architecture at a glance. The course will unpack these components progressively; students are not expected to understand the whole diagram at the beginning.}
+  \centering
+  \includegraphics[width=\textwidth]{images/architecture_overview.png}
+  \caption{The StoryReasoning architecture at a glance. Four frame--description pairs are encoded and fused before a sequence model integrates information across time. From the shared sequence representation, separate branches support image prediction, text generation and character prediction. The image branch includes a stochastic latent variable so that more than one visual continuation can be represented, while the text branch uses a text embedding followed by memory and cross-attention before language decoding.}
   \label{fig:architecture-overview}
 \end{figure}
 
