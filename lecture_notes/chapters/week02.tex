@@ -240,7 +240,8 @@ This vector is the \emph{gradient}. It points in the direction of steepest local
 For a network with millions or billions of parameters the same definition applies. The gradient is simply much longer. Each component asks: if this parameter were nudged while the others were momentarily fixed, how would the loss respond?
 
 \begin{figure}[ht]
-  \figureaction{Draw a contour map of MSE over parameters $(w,b)$ for a simple linear-regression problem. Mark a poor starting point, show the gradient arrow pointing uphill, and a sequence of gradient-descent steps moving approximately perpendicular to contour lines toward the minimum. Include three trajectories for small, sensible and excessive learning rates; make the excessive one overshoot or diverge.}
+  \centering
+  \includegraphics[width=\textwidth]{week02_loss_surface.pdf}
   \caption{Training as motion in parameter space. The gradient describes local uphill sensitivity; gradient descent moves in the opposite direction. The learning rate determines how far each update travels.}
   \label{fig:week2-loss-surface}
 \end{figure}
