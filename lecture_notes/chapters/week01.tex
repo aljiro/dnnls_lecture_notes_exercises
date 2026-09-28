@@ -224,7 +224,8 @@ Reinforcement learning is not a focus of this module, but it belongs on the map.
 For our purposes, notice the contrast. Supervised learning often says ``for this input, here is the desired output''. Reinforcement learning says ``after interacting with the environment, here is a scalar indication of how well things went''. Both are learning from experience, but the information supplied by experience is different.
 
 \begin{figure}[ht]
-  \figureaction{Make a compact diagram comparing supervised, unsupervised, self-supervised and reinforcement learning. Use the same visual language for all four: show where \(x\), \(y\), derived targets and rewards come from. Emphasise that self-supervised targets are constructed from the data, while reinforcement learning receives evaluative reward after actions.}
+  \centering
+  \includegraphics[width=\textwidth]{images/figure_2_3_learning_paradigms.png}
   \caption{Learning paradigms differ mainly in the source and structure of the teaching signal. Modern systems often combine more than one paradigm.}
   \label{fig:week1-learning-paradigms}
 \end{figure}
@@ -296,7 +297,8 @@ Finally, we measure behaviour on examples not used to fit the parameters. Evalua
 The training loss and evaluation metric can be related without being identical. A differentiable loss may be convenient for learning while a task metric is more meaningful for reporting. This difference will matter repeatedly.
 
 \begin{figure}[ht]
-  \figureaction{Draw the six-part supervised-learning loop: dataset \(\rightarrow\) model \(f_\theta\) \(\rightarrow\) prediction \(\hat y\) \(\rightarrow\) loss against \(y\) \(\rightarrow\) parameter update, with a separate evaluation arrow to held-out data. Visually distinguish the training loop from the inference path \(x\rightarrow f_\theta(x)\rightarrow\hat y\).}
+  \centering
+  \includegraphics[width=\textwidth]{week01_supervised_skeleton.pdf}
   \caption{The skeleton of supervised learning. Week~1 names the parts; Week~2 will explain how the loss produces parameter updates.}
   \label{fig:week1-supervised-skeleton}
 \end{figure}

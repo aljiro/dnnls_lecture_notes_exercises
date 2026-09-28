@@ -385,7 +385,8 @@ A one-example gradient can be very noisy. One unusual example may point in a dir
 Noise is therefore not evidence that SGD is malfunctioning. It is the expected consequence of estimating a population-of-training-examples quantity from a sample of those examples. Week~1's sampling idea has reappeared inside the optimiser.
 
 \begin{figure}[ht]
-  \figureaction{Make a two-part figure. Left: in a $(\partial L/\partial w,\partial L/\partial b)$ plane, plot a fixed full-dataset gradient and clouds of gradient estimates from batch size 1, a medium mini-batch, and a large mini-batch; smaller batches should have visibly larger spread. Right: show three parameter trajectories toward the same low-loss region, with full-batch smooth, mini-batch moderately noisy, and single-example SGD jagged.}
+  \centering
+  \includegraphics[width=\textwidth]{week02_gradient_noise.pdf}
   \caption{Mini-batch gradients are noisy estimates of the full-data gradient. Larger batches reduce variation, but a noisy trajectory can still make useful progress.}
   \label{fig:week2-gradient-noise}
 \end{figure}

@@ -52,3 +52,30 @@ Learning rates 0.04, 0.35 and 0.75 produce slow progress, convergence and
 increasing oscillation respectively. The script checks the analytical gradient
 against finite differences and verifies the stated loss behaviour. Contour
 values and trajectories are calculated from the data rather than drawn by hand.
+
+## Figure 2.4: supervised-learning skeleton
+
+```bash
+/tmp/dnnls-figure22-env/bin/python lecture_notes/figures/make_week01_supervised_skeleton.py
+```
+
+This writes `week01_supervised_skeleton.pdf` (vector artwork) and a PNG preview.
+The training panel routes inputs to the model and targets directly to the loss;
+a parameter-update loop returns to the model. The inference panel keeps learned
+parameters fixed. Dashed evaluation arrows compare held-out predictions and
+targets without feeding back into the parameter-update loop.
+
+## Figure 3.3: mini-batch gradient noise
+
+```bash
+/tmp/dnnls-figure22-env/bin/python lecture_notes/figures/make_week02_gradient_noise.py
+```
+
+This writes `week02_gradient_noise.pdf` and a PNG preview. A fixed seed generates
+400 noisy linear-regression examples. The left panel samples 600 gradient
+estimates for each of B=1, 16 and 128 at one fixed parameter vector, using uniform
+sampling with replacement. The right panel computes 100 updates with learning
+rate 0.06 from the same start for full-batch, B=16 and B=1 training. This compares
+update counts, not equal computation. All contours use the same dataset's MSE.
+Checks cover the estimates' mean and variance ordering, decreasing full-batch
+loss, and improvement of each trajectory over its initial loss.
