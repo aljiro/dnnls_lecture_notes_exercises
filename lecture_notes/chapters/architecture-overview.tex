@@ -21,15 +21,18 @@ and the target is
 \[
   y = (I_5,s_5).
 \]
-The frame is represented at a modest resolution of \(60\times125\) pixels. The descriptions are short natural-language sentences. Structured annotations tell us which characters occur in each frame, where they are, which objects are present, and the setting.
+The frame is represented at a modest resolution of \(60\times125\) pixels. The descriptions are short natural-language sentences. Structured annotations tell us which characters occur in each frame, where they are, which objects are present, and the setting. \Cref{fig:architecture-task} shows a typical five-frame window and the shot change that makes the task ambiguous.
 
 \begin{figure}[ht]
-  \figureaction{Draw a five-panel movie-strip illustration. Panels 1--4 should be grouped under ``input'' and panel 5 under ``target''. Put one short description beneath each panel. Make panel 5 visibly change camera shot so the ambiguity of next-frame prediction is apparent.}
-  \caption{The StoryReasoning task. Four frame--description pairs are observed and the fifth must be predicted. A shot change is common, so the target pixels need not be a simple continuation of the visible motion.}
+  \centering
+  \includegraphics[width=\textwidth]{images/week01_storyreasoning_task.jpg}
+  \caption{A five-frame window from StoryReasoning (story 3920). Frames 1--4 form the observed context and frame 5 is the prediction target. Although the frames are temporally consecutive, the target can differ sharply in viewpoint and visible content from the immediately preceding frame. The example makes the central difficulty concrete: predicting what happens next is not always the same as extrapolating recent pixel motion.}
   \label{fig:architecture-task}
 \end{figure}
 
 The phrase ``predict the next frame'' hides several different problems. We might ask for the exact target pixels, a compact representation of the frame, the most plausible frame among a set of candidates, or a distribution from which several plausible futures can be sampled. These are not interchangeable formulations. They expose the learner to the same raw observations but ask different questions of them.
+
+The full system used as the running case study is summarised in \cref{fig:architecture-overview}. At this stage the diagram is a map rather than a specification: its components will only become meaningful as the relevant ideas are introduced.
 
 \section{The central trap: an average can win}
 
@@ -52,8 +55,9 @@ A convolutional autoencoder first learns a compact latent representation of each
 Several later mechanisms are responses to specific failures. Content-dependent attention can select useful inputs, but selection must be tested rather than assumed. Pretrained components require protection against fine-tuning drift. Per-character prediction works better when each character's own history is preserved rather than compressed into one shared vector. The text generator benefits from attending directly to descriptions and character names. Finally, because the next image is genuinely uncertain, a variational latent models a distribution over possible futures rather than forcing all uncertainty into one deterministic vector.
 
 \begin{figure}[ht]
-  \figureaction{Create a clean high-level block diagram of the final StoryReasoning system. Show four repeated input pairs (frame encoder + text encoder), fusion into a sequence model, then separate branches for image latent/decoder, text embedding/language decoder, and character prediction. Add a small ``stochastic latent'' block on the image branch and memory/cross-attention on the text branch. Keep component names high-level; do not show tensor dimensions.}
-  \caption{The running architecture at a glance. The course will unpack these components progressively; students are not expected to understand the whole diagram at the beginning.}
+  \centering
+  \includegraphics[width=\textwidth]{images/architecture_overview.png}
+  \caption{The StoryReasoning architecture at a glance. Four frame--description pairs are encoded and fused before a sequence model integrates information across time. From the shared sequence representation, separate branches support image prediction, text generation and character prediction. The image branch includes a stochastic latent variable so that more than one visual continuation can be represented, while the text branch can attend back to stored context through memory and cross-attention. Later chapters introduce these components one at a time.}
   \label{fig:architecture-overview}
 \end{figure}
 
