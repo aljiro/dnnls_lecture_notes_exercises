@@ -11,15 +11,6 @@ This chapter establishes the vocabulary with which the rest of the module will a
 Machine learning is the construction of a rule from a finite sample under a chosen objective. The algorithm, the architecture and the dataset matter because each restricts which rule can be found; the objective matters because it states what ``better'' means.
 \end{keyidea}
 
-Throughout the module we will return to a concrete example: the StoryReasoning task. A learning instance provides four consecutive movie frames as context and asks the system to account for what comes next. \Cref{fig:week1-storyreasoning-task} shows one such five-frame window from story 3920. The task is simple to state, but the fifth frame can change viewpoint and visible content sharply; a useful model therefore needs more than a rule that merely copies or extrapolates the most recent pixels.
-
-\begin{figure}[ht]
-  \centering
-  \includegraphics[width=\textwidth]{images/week01_storyreasoning_task.jpg}
-  \caption{A five-frame window from StoryReasoning (story 3920). Frames 1--4 form the observed context and frame 5 is the prediction target. Although the frames are temporally consecutive, the target can differ substantially in viewpoint and visible content from the immediately preceding frame. This simple example anticipates a recurring question in the module: what information from the context must a learning system preserve in order to predict a plausible continuation?}
-  \label{fig:week1-storyreasoning-task}
-\end{figure}
-
 \section{Several traditions, one modern subject}
 
 Modern machine learning did not descend from a single idea. It sits at a meeting point of statistical inference, computation, pattern recognition, neuroscience and artificial intelligence. These traditions asked different questions, and the field still carries the marks of all of them.
