@@ -48,7 +48,8 @@ A positive residual says that the model predicted too low; a negative residual s
 A residual is not yet a training objective. A dataset gives us many residuals, some positive and some negative. Simply adding them is a bad idea because errors in opposite directions can cancel. We need a rule for combining them into a scalar quantity whose value reflects the kinds of mistakes we care about.
 
 \begin{figure}[ht]
-  \figureaction{Draw a small 2D regression dataset with a deliberately poor straight prediction line. Mark the slope parameter $w$ and intercept $b$. For four points, draw vertical residual segments to the line; make two residuals positive and two negative. Add a small inset showing how increasing $w$ rotates the line while increasing $b$ translates it upward.}
+  \centering
+  \includegraphics[width=\textwidth]{week02_line_residuals.pdf}
   \caption{A linear model has only two parameters, so its behaviour is easy to inspect. Residuals describe individual prediction errors; a loss will combine these errors into one objective.}
   \label{fig:week2-line-residuals}
 \end{figure}

@@ -25,3 +25,15 @@ when using Tectonic, build a temporary copy of `lecture_notes/`, copy
 `references.bib` into that copy, and change only the temporary preamble's
 bibliography path to `references.bib`. Put the local Biber executable on `PATH`.
 The repository's LaTeX sources retain the normal relative bibliography path.
+
+## Figure 3.1: linear model and residuals
+
+```bash
+/tmp/dnnls-figure22-env/bin/python lecture_notes/figures/make_week02_line_residuals.py
+```
+
+This writes `week02_line_residuals.pdf` and `week02_line_residuals.png`.
+The synthetic observations and deliberately unfitted line are fixed. Four arrows
+run from predictions to targets, with two positive and two negative residuals.
+The slope triangle has a unit horizontal run. The two small panels change only
+one parameter at a time and share the same axis limits and original line.
