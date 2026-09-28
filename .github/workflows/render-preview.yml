@@ -67,11 +67,13 @@ B64
           box([1400,635,1625,765],'Character\nprediction',F(28)); d.text((1422,595),'characters',font=F(22),fill=muted)
           im.save('lecture_notes/images/architecture_overview.png',optimize=True)
           PY
-      - uses: xu-cheng/latex-action@v3
-        with:
-          root_file: main.tex
-          working_directory: lecture_notes
-          latexmk_use_lualatex: false
+      - name: Install TeX Live
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends latexmk texlive-latex-extra texlive-fonts-recommended biber
+      - name: Compile lecture notes
+        working-directory: lecture_notes
+        run: latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
       - name: Name rendered PDF
         run: cp lecture_notes/main.pdf dnnls_lecture_notes_v0.pdf
       - uses: actions/upload-artifact@v4
