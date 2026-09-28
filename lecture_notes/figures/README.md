@@ -79,3 +79,32 @@ rate 0.06 from the same start for full-batch, B=16 and B=1 training. This compar
 update counts, not equal computation. All contours use the same dataset's MSE.
 Checks cover the estimates' mean and variance ordering, decreasing full-batch
 loss, and improvement of each trajectory over its initial loss.
+
+## Chapter 4: from linear rules to neural networks
+
+```bash
+/tmp/dnnls-figure22-env/bin/python lecture_notes/figures/make_week03_figures.py
+```
+
+The single script generates vector PDFs and PNG previews for all four figures:
+
+- **4.1** `week03_linear_separability`: fixed synthetic separable clusters and
+  exact XOR corners. Candidate boundary accuracies are checked under either
+  class orientation; axes have equal scale so the weight-vector normal is exact.
+- **4.2** `week03_activations`: analytical step, sigmoid, tanh and ReLU curves
+  and ordinary derivatives. Open markers distinguish undefined derivatives at
+  zero; no arbitrary derivative convention is depicted as the mathematical value.
+- **4.3** `week03_hidden_geometry`: 160 noisy two-moons examples, data seed 7,
+  initialisation seed 42. A 2→8→2→1 tanh MLP trains for 1,200 full-batch Adam
+  updates (learning rate 0.01, betas 0.9/0.999, epsilon 1e-8) with squared-error
+  targets -1/+1. Both hidden layers use tanh; the output is linear. The final
+  two-unit hidden activations are plotted without further projection or jitter.
+  All manually calculated parameter gradients are checked against finite
+  differences before training. The plotted network classifies all these training
+  examples correctly; the illustrative affine least-squares baseline gets 87.5%.
+  This is a representation demonstration, not a held-out performance claim.
+- **4.4** `week03_computational_graph`: the chapter's exact scalar ReLU network,
+  including all four parameters, input and target, with forward/backward arrows.
+
+No image-generation service or new dependencies are needed. Re-running the
+script regenerates all four figures and repeats the mathematical checks.

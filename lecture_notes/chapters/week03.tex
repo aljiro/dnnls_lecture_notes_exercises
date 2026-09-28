@@ -69,7 +69,8 @@ This gives a precise description of what a linear classifier can do: it can divi
 That is sometimes exactly what the problem requires. If two groups of points are well separated by a line, there is no merit in constructing a complicated nonlinear model merely because one is available. But other arrangements cannot be separated in this way, however well the linear model is optimised.
 
 \begin{figure}[ht]
-  \figureaction{Create a two-panel 2D diagram. Left: two classes that are cleanly separated by one straight decision boundary, with the normal weight vector w drawn perpendicular to the line. Right: an XOR-style four-corner arrangement with diagonally opposite corners sharing a class. Show several candidate straight lines, each necessarily leaving at least one region on the wrong side.}
+  \centering
+  \includegraphics[width=\textwidth]{week03_linear_separability.pdf}
   \caption{A linear classifier can separate two half-spaces with one flat boundary. Some class arrangements are not linearly separable, so no amount of optimisation can make one line solve them perfectly.}
   \label{fig:week3-linear-separability}
 \end{figure}
@@ -214,7 +215,8 @@ ReLU is especially useful for geometric intuition. Each hidden unit divides its 
 Thus a ReLU network can be \emph{piecewise linear} without being globally linear.
 
 \begin{figure}[ht]
-  \figureaction{Create a compact activation-function figure with four aligned plots for step, sigmoid, tanh and ReLU over z from roughly -5 to 5. Beneath or beside each curve show a faint derivative/sensitivity curve. Emphasise saturation for sigmoid/tanh and the two constant-slope regions of ReLU.}
+  \centering
+  \includegraphics[width=\textwidth]{week03_activations.pdf}
   \caption{Common activation functions transform the same pre-activation in different ways. Their local sensitivities matter because gradients through a network are products of such local sensitivities.}
   \label{fig:week3-activations}
 \end{figure}
@@ -261,8 +263,9 @@ What looks nonlinear from the original input coordinates can therefore arise fro
 This is a central idea of deep learning: \emph{learn a representation in which the desired computation becomes easier}.
 
 \begin{figure}[ht]
-  \figureaction{Create a three-stage diagram of a small 2D classification problem. Left: two interlocking or two-moons classes in input space with no satisfactory straight separator. Middle: arrows through a nonlinear hidden layer transforming points into a new 2D hidden space. Right: the transformed classes are more nearly linearly separable, with one straight output boundary. Use the same individual points across panels so the viewer can track that the examples did not change, only their coordinates.}
-  \caption{A hidden layer can reorganise the geometry of a problem. The output layer may remain linear in hidden space even though the corresponding decision boundary is nonlinear in the original input space.}
+  \centering
+  \includegraphics[width=\textwidth]{week03_hidden_geometry.pdf}
+  \caption{A hidden layer can reorganise the geometry of a problem. Here, the final two-unit hidden layer of a small MLP maps the same two-moons examples into new coordinates; letters track individual examples. The output layer remains linear in hidden space even though the corresponding decision boundary is nonlinear in the original input space.}
   \label{fig:week3-hidden-geometry}
 \end{figure}
 
@@ -350,7 +353,8 @@ Those intermediate values matter. To know how changing \(w_1\) affects the final
 This dependency structure is naturally represented as a computational graph.
 
 \begin{figure}[ht]
-  \figureaction{Draw the scalar computational graph for the sequence: first-layer weighted sum, ReLU hidden activation, second-layer output, and squared-error loss. Show the input and four parameters entering their operations, and the target entering the loss. Place small arrows under the graph pointing left-to-right labelled ``forward: values'' and right-to-left labelled ``backward: sensitivities''.}
+  \centering
+  \includegraphics[width=\textwidth]{week03_computational_graph.pdf}
   \caption{A computational graph separates the forward flow of values from the backward flow of sensitivities. Early parameters affect the loss through chains of intermediate computations.}
   \label{fig:week3-computational-graph}
 \end{figure}
